@@ -821,18 +821,25 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
   UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::DarkInset, searchPos,
                           searchSize, alpha, false);
 
-  ImGui::SetCursorScreenPos(
-      ImVec2(searchPos.x + 12.0f * s, searchPos.y + 8.0f * s));
+  float searchFontSz = std::min(searchSize.y - 10.0f,
+                                UiDraw::ScaleFontSize(fontReg, FsReg(14.5f)));
+  float padY = std::max(0.0f, std::round((searchSize.y - searchFontSz) * 0.5f));
+  ImGui::SetCursorScreenPos(ImVec2(searchPos.x + 12.0f * s, searchPos.y));
   ImGui::PushItemWidth(searchSize.x - 52.0f * s);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, padY));
   ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_Text,
                         IM_COL32(236, 242, 255, static_cast<int>(255 * alpha)));
-  ImGui::PushFont(fontReg);
+  ImGui::PushStyleColor(
+      ImGuiCol_TextDisabled,
+      IM_COL32(150, 166, 198, static_cast<int>(220 * alpha)));
+  ImGui::PushFont(fontReg, searchFontSz);
   ImGui::InputTextWithHint("##StructSearch", "Search saved structures...",
                            g_SearchBuf, sizeof(g_SearchBuf));
   ImGui::PopFont();
-  ImGui::PopStyleColor(3);
+  ImGui::PopStyleColor(4);
+  ImGui::PopStyleVar(1);
   ImGui::PopItemWidth();
 
   if (g_SearchBuf[0] != '\0') {
