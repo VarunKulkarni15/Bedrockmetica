@@ -1,0 +1,59 @@
+# Build artifacts & CMake outputs
+/build/
+/out/
+/cmake-build-*/
+/CMakeUserPresets.json
+
+# Visual Studio / IDE user files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+*.slnx
+*.vcxproj
+*.vcxproj.*
+*.pdb
+*.dll
+*.lib
+*.exp
+*.exe
+*.obj
+*.idb
+*.ilk
+*.log
+*.cfg
+
+# Local scratch, prototypes & screenshots
+/scratch/
+/assets/
+/schematics/
+/Screenshot*.png
+/*.png
+/*.html
+/*.py
+/*.json
+
+# Internal design / dev notes & reverse-engineering guides
+/PROJECT_CONTEXT.md
+/UI_UX_SPECIFICATION.md
+/BEDROCKMETICA_ARCHITECTURE_AND_PROGRESS.md
+src/Utils/Tutorial/
+
+# Unused legacy embedded byte headers & SVG icon experiments
+src/Utils/BannerRawData.h
+src/Utils/MaterialsAtlasRawData.h
+src/Assets/Icons/
+
+# Vendored dependency docs, CI workflows, unit tests & sample projects
+ext/*/.github/
+ext/*/doc/
+ext/*/docs/
+ext/*/examples/
+ext/*/test/
+ext/*/util/
+ext/*/build/
+ext/*/cmake/
+ext/imgui/misc/
+ext/kiero/minhook/
