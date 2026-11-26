@@ -1,5 +1,6 @@
 #include "CaptureManager.hpp"
 #include "../IO/BmetCodec.hpp"
+#include "../Utils/Logger.hpp"
 #include "../Utils/SoundManager.hpp"
 #include "../Utils/ToastManager.hpp"
 #include <algorithm>
@@ -44,6 +45,24 @@ static int32_t g_TotalCols = 0;
 
 static std::list<uint64_t> g_ScratchLru;
 static std::unordered_map<uint64_t, CachedColumn> g_ScratchMap;
+static std::unordered_map<const void *, uint16_t> g_BlockPtrCache;
+static uint32_t g_TickCounter = 0;
+
+uint16_t ResolveBlockPtrToPid(const void *blk, std::string &bName,
+                              std::vector<BlockStateProp> &props) {
+  if (!blk)
+    return 0;
+  auto it = g_BlockPtrCache.find(blk);
+  if (it != g_BlockPtrCache.end())
+    return it->second;
+  if (!BedrockGame::ReadBlockSerialization(blk, bName, props)) {
+    g_BlockPtrCache.emplace(blk, 0);
+    return 0;
+  }
+  uint16_t pid = g_StagedDoc.InternBlock(bName, props);
+  g_BlockPtrCache.emplace(blk, pid);
+  return pid;
+}
 
 uint64_t PackCol(int32_t cx, int32_t cz) {
   return (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32) |
@@ -58,6 +77,7 @@ void UnpackCol(uint64_t key, int32_t &cx, int32_t &cz) {
 void ClearScratch() {
   g_ScratchLru.clear();
   g_ScratchMap.clear();
+  g_BlockPtrCache.clear();
 }
 
 void SnapshotColumnToScratch(void *bs, int32_t cx, int32_t cz) {
@@ -87,11 +107,7 @@ void SnapshotColumnToScratch(void *bs, int32_t cx, int32_t cz) {
     for (int32_t lx = 0; lx < 16; ++lx) {
       for (int32_t wy = kMinWorldY; wy <= kMaxWorldY; ++wy) {
         const void *blk = BedrockGame::GetBlockPtr(bs, wx0 + lx, wy, wz0 + lz);
-        if (!blk)
-          continue;
-        if (!BedrockGame::ReadBlockSerialization(blk, bName, props))
-          continue;
-        uint16_t pid = g_StagedDoc.InternBlock(bName, props);
+        uint16_t pid = ResolveBlockPtrToPid(blk, bName, props);
         if (pid != 0) {
           size_t idx =
               static_cast<size_t>((wy - kMinWorldY) * 256 + lz * 16 + lx);
@@ -124,11 +140,7 @@ void HarvestColumnIntoStaged(void *bs, int32_t cx, int32_t cz) {
       for (int32_t wx = x0; wx <= x1; ++wx) {
         for (int32_t wy = g_MinB.y; wy <= g_MaxB.y; ++wy) {
           const void *blk = BedrockGame::GetBlockPtr(bs, wx, wy, wz);
-          if (!blk)
-            continue;
-          if (!BedrockGame::ReadBlockSerialization(blk, bName, props))
-            continue;
-          uint16_t pid = g_StagedDoc.InternBlock(bName, props);
+          uint16_t pid = ResolveBlockPtrToPid(blk, bName, props);
           if (pid != 0) {
             g_StagedDoc.SetBlock(0, wx - g_MinB.x, wy - g_MinB.y, wz - g_MinB.z,
                                  pid);
@@ -214,6 +226,13 @@ void FinalizeBoxFromPos1Pos2(void *bs) {
   ClearScratch();
   g_StagedDoc.RecomputeStats();
   g_Phase = CapturePhase::BoxLockedReadyToSave;
+
+  Logger::info("Box locked: " + std::to_string(w) + "x" + std::to_string(h) +
+                   "x" + std::to_string(d) +
+                   " cols=" + std::to_string(g_CapturedCols.size()) + "/" +
+                   std::to_string(g_TotalCols) +
+                   " nonAir=" + std::to_string(g_StagedDoc.totalNonAirBlocks),
+               "Capture");
 
   if (g_PendingCols.empty()) {
     ToastManager::Show(ToastType::Success, "BOX CAPTURED (100%)",
@@ -343,14 +362,17 @@ void TickWorldUpdate() {
     return;
 
   std::lock_guard<std::mutex> lock(g_CapMutex);
-  if (g_Phase == CapturePhase::ArmedNeedsPos1 ||
-      g_Phase == CapturePhase::HasPos1NeedsPos2) {
+  g_TickCounter++;
+  if ((g_TickCounter % 6) != 0)
+    return;
+
+  if (g_Phase == CapturePhase::HasPos1NeedsPos2) {
     BedrockGame::Vec3f cam = BedrockGame::GetCameraOrigin();
     int32_t pcx = static_cast<int32_t>(std::floor(cam.x)) >> 4;
     int32_t pcz = static_cast<int32_t>(std::floor(cam.z)) >> 4;
     int cachedThisTick = 0;
-    for (int32_t dz = -3; dz <= 3 && cachedThisTick < 3; ++dz) {
-      for (int32_t dx = -3; dx <= 3 && cachedThisTick < 3; ++dx) {
+    for (int32_t dz = -2; dz <= 2 && cachedThisTick < 1; ++dz) {
+      for (int32_t dx = -2; dx <= 2 && cachedThisTick < 1; ++dx) {
         int32_t cx = pcx + dx;
         int32_t cz = pcz + dz;
         uint64_t key = PackCol(cx, cz);
@@ -422,18 +444,14 @@ void RenderWorldVisuals() {
     float p1y = static_cast<float>(g_Pos1.y);
     float p1z = static_cast<float>(g_Pos1.z);
     BedrockGame::DrawFilledBox3D(p1x - 0.005f, p1y - 0.005f, p1z - 0.005f,
-                                 p1x + 1.005f, p1y + 1.005f, p1z + 1.005f, 1.0f,
-                                 0.78f, 0.22f, 0.34f * pulse);
+                                 p1x + 1.005f, p1y + 1.005f, p1z + 1.005f, 0.20f,
+                                 0.76f, 1.0f, 0.32f * pulse);
     BedrockGame::DrawWireBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
-                               p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 1.0f,
-                               0.84f, 0.28f, 0.95f);
-
-    BedrockGame::DrawFilledBox3D(p1x + 0.36f, p1y + 1.0f, p1z + 0.36f,
-                                 p1x + 0.64f, p1y + 64.0f, p1z + 0.64f, 0.25f,
-                                 0.85f, 1.0f, 0.28f * pulse);
-    BedrockGame::DrawWireBox3D(p1x + 0.35f, p1y + 1.0f, p1z + 0.35f,
-                               p1x + 0.65f, p1y + 64.0f, p1z + 0.65f, 0.35f,
-                               0.92f, 1.0f, 0.75f);
+                               p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 0.35f,
+                               0.92f, 1.0f, 0.98f);
+    BedrockGame::DrawWireBox3D(p1x - 0.06f, p1y - 0.06f, p1z - 0.06f,
+                               p1x + 1.06f, p1y + 1.06f, p1z + 1.06f, 0.25f,
+                               0.80f, 1.0f, 0.55f * pulse);
 
     BedrockGame::HitInfo hit;
     if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {

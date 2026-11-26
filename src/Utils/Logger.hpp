@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <iostream>
 #include <mutex>
+#include <share.h>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -54,8 +55,8 @@ namespace Logger {
         }
 
         for (const auto& cand : candidates) {
-            FILE* f = nullptr;
-            if (fopen_s(&f, cand.c_str(), "w") == 0 && f != nullptr) {
+            FILE* f = _fsopen(cand.c_str(), "w", _SH_DENYNO);
+            if (f != nullptr) {
                 g_LogFile = f;
                 g_LogFilePath = cand;
                 break;

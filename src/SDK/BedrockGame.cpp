@@ -375,33 +375,61 @@ Vec3f GetCameraOrigin() {
   return g_CameraOrigin;
 }
 
-bool IsLocalPlayerBareHanded() {
-  void *ci = GetClientInstance();
-  if (!IsValidReadablePtr(ci))
-    return false;
+bool TryReadCarriedItemSeh(void *ci, int lvlPlayerIdx, int itemIdx,
+                           uintptr_t &outPlayer, uintptr_t &outStack,
+                           uintptr_t &outItemPtr, uint8_t &outCount,
+                           uint8_t &outValid) {
+  outPlayer = 0;
+  outStack = 0;
+  outItemPtr = 0;
+  outCount = 0;
+  outValid = 0;
   __try {
-    int idx = GET_OFFSET("ClientInstance::getLocalPlayerVIdx");
-    if (idx <= 0)
-      idx = 173;
-    void *player = CallVFunc<void *>(static_cast<size_t>(idx), ci);
+    void *player = CallVFunc<void *>(static_cast<size_t>(lvlPlayerIdx), ci);
+    outPlayer = reinterpret_cast<uintptr_t>(player);
     if (!IsValidReadablePtr(player))
       return false;
-
-    int itemIdx = GET_OFFSET("Actor::getCarriedItemVIdx");
-    if (itemIdx <= 0)
-      itemIdx = 77;
     void *itemStack = CallVFunc<void *>(static_cast<size_t>(itemIdx), player);
+    outStack = reinterpret_cast<uintptr_t>(itemStack);
     if (!IsValidReadablePtr(itemStack))
       return false;
-
-    uintptr_t itemPtr =
-        *reinterpret_cast<const uintptr_t *>(reinterpret_cast<uintptr_t>(itemStack) + 0x08);
-    uint8_t count =
-        *reinterpret_cast<const uint8_t *>(reinterpret_cast<uintptr_t>(itemStack) + 0x22);
-    return (itemPtr == 0) || (count == 0);
+    outItemPtr = *reinterpret_cast<const uintptr_t *>(outStack + 0x08);
+    outCount = *reinterpret_cast<const uint8_t *>(outStack + 0x22);
+    outValid = *reinterpret_cast<const uint8_t *>(outStack + 0x23);
+    return true;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return false;
   }
+}
+
+bool IsLocalPlayerBareHanded() {
+  void *ci = GetClientInstance();
+  if (!IsValidReadablePtr(ci)) {
+    Logger::warn("BareHand: ClientInstance null", "Capture");
+    return false;
+  }
+  int idx = GET_OFFSET("ClientInstance::getLocalPlayerVIdx");
+  if (idx <= 0)
+    idx = 173;
+  int itemIdx = GET_OFFSET("Actor::getCarriedItemVIdx");
+  if (itemIdx <= 0)
+    itemIdx = 77;
+
+  uintptr_t pPtr = 0, sPtr = 0, itemPtr = 0;
+  uint8_t count = 0, valid = 0;
+  bool ok = TryReadCarriedItemSeh(ci, idx, itemIdx, pPtr, sPtr, itemPtr, count,
+                                  valid);
+  char msg[192];
+  snprintf(msg, sizeof(msg),
+           "BareHand ok=%d player=0x%llX stack=0x%llX item=0x%llX cnt=%u val=%u",
+           ok ? 1 : 0, static_cast<unsigned long long>(pPtr),
+           static_cast<unsigned long long>(sPtr),
+           static_cast<unsigned long long>(itemPtr),
+           static_cast<unsigned>(count), static_cast<unsigned>(valid));
+  Logger::info(msg, "Capture");
+  if (!ok)
+    return false;
+  return (itemPtr == 0) || (count == 0) || (valid == 0);
 }
 
 bool GetAimedHit(HitInfo &outHit) {
