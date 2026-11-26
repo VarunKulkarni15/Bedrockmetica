@@ -49,6 +49,7 @@ set(BEDROCKMETICA_SOURCES
     src/Core/SchematicDocument.cpp
     src/Core/CaptureManager.cpp
     src/IO/BmetCodec.cpp
+    src/IO/McStructureCodec.cpp
     src/SDK/BedrockGame.cpp
     src/UI/UiAssets.cpp
     src/UI/UiDraw.cpp
