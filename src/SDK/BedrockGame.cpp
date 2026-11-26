@@ -1,4 +1,5 @@
 #include "BedrockGame.hpp"
+#include "../Utils/Logger.hpp"
 #include "../Utils/SignatureAndOffsetManager.hpp"
 #include <atomic>
 #include <cstring>
@@ -9,7 +10,7 @@ namespace BedrockGame {
 
 namespace {
 
-using TessBeginFn = void(__fastcall *)(void *tess, uint8_t mode,
+using TessBeginFn = void(__fastcall *)(void *tess, uint64_t unused, uint8_t mode,
                                        int32_t maxVerts, bool buildFaceData);
 using TessColorFn = void(__fastcall *)(void *tess, float r, float g, float b,
                                        float a);
@@ -391,7 +392,7 @@ bool IsLocalPlayerBareHanded() {
       itemIdx = 77;
     void *itemStack = CallVFunc<void *>(static_cast<size_t>(itemIdx), player);
     if (!IsValidReadablePtr(itemStack))
-      return true;
+      return false;
 
     uintptr_t itemPtr =
         *reinterpret_cast<const uintptr_t *>(reinterpret_cast<uintptr_t>(itemStack) + 0x08);
@@ -444,9 +445,9 @@ bool IsChunkColumnLoaded(void *blockSource, int32_t cx, int32_t cz) {
     int idx = GET_OFFSET("BlockSource::getChunkVIdx");
     if (idx <= 0)
       idx = 40;
-    ChunkPos2i cp{cx, cz};
+    BlockPos3i bp{(cx << 4) + 8, 64, (cz << 4) + 8};
     void *chunk =
-        CallVFunc<void *>(static_cast<size_t>(idx), blockSource, &cp);
+        CallVFunc<void *>(static_cast<size_t>(idx), blockSource, &bp);
     return IsValidReadablePtr(chunk);
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return false;
@@ -509,7 +510,18 @@ void DrawWireBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                                    0x10) = 1;
     }
 
-    g_TessBegin(tess, 4, 24, false);
+    auto *tessOff =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
+    tessOff[0] = 0.0f;
+    tessOff[1] = 0.0f;
+    tessOff[2] = 0.0f;
+    auto *tessScale =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
+    tessScale[0] = 1.0f;
+    tessScale[1] = 1.0f;
+    tessScale[2] = 1.0f;
+
+    g_TessBegin(tess, 0, 4, 24, false);
     g_TessColor(tess, r, g, b, a);
 
     EmitLine(tess, x0, y0, z0, x1, y0, z0);
@@ -563,7 +575,18 @@ void DrawFilledBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                                    0x10) = 1;
     }
 
-    g_TessBegin(tess, 1, 24, false);
+    auto *tessOff =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
+    tessOff[0] = 0.0f;
+    tessOff[1] = 0.0f;
+    tessOff[2] = 0.0f;
+    auto *tessScale =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
+    tessScale[0] = 1.0f;
+    tessScale[1] = 1.0f;
+    tessScale[2] = 1.0f;
+
+    g_TessBegin(tess, 0, 1, 24, false);
     g_TessColor(tess, r, g, b, a);
 
     EmitQuadFace(tess, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1);

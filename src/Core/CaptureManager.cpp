@@ -343,13 +343,14 @@ void TickWorldUpdate() {
     return;
 
   std::lock_guard<std::mutex> lock(g_CapMutex);
-  if (g_Phase == CapturePhase::HasPos1NeedsPos2) {
+  if (g_Phase == CapturePhase::ArmedNeedsPos1 ||
+      g_Phase == CapturePhase::HasPos1NeedsPos2) {
     BedrockGame::Vec3f cam = BedrockGame::GetCameraOrigin();
     int32_t pcx = static_cast<int32_t>(std::floor(cam.x)) >> 4;
     int32_t pcz = static_cast<int32_t>(std::floor(cam.z)) >> 4;
     int cachedThisTick = 0;
-    for (int32_t dz = -2; dz <= 2 && cachedThisTick < 2; ++dz) {
-      for (int32_t dx = -2; dx <= 2 && cachedThisTick < 2; ++dx) {
+    for (int32_t dz = -3; dz <= 3 && cachedThisTick < 3; ++dz) {
+      for (int32_t dx = -3; dx <= 3 && cachedThisTick < 3; ++dx) {
         int32_t cx = pcx + dx;
         int32_t cz = pcz + dz;
         uint64_t key = PackCol(cx, cz);
@@ -426,6 +427,13 @@ void RenderWorldVisuals() {
     BedrockGame::DrawWireBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
                                p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 1.0f,
                                0.84f, 0.28f, 0.95f);
+
+    BedrockGame::DrawFilledBox3D(p1x + 0.36f, p1y + 1.0f, p1z + 0.36f,
+                                 p1x + 0.64f, p1y + 64.0f, p1z + 0.64f, 0.25f,
+                                 0.85f, 1.0f, 0.28f * pulse);
+    BedrockGame::DrawWireBox3D(p1x + 0.35f, p1y + 1.0f, p1z + 0.35f,
+                               p1x + 0.65f, p1y + 64.0f, p1z + 0.65f, 0.35f,
+                               0.92f, 1.0f, 0.75f);
 
     BedrockGame::HitInfo hit;
     if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {

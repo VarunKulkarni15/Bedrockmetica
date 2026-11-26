@@ -108,12 +108,11 @@ std::string GetSchematicsDir() {
   HMODULE hMod = GetModuleHandleA("Bedrockmetica.dll");
   std::string base = Utils::GetModuleDir(hMod);
   std::vector<std::string> candidates = {
-      base + "/schematics",
-      base + "/../../schematics",
-      "schematics"};
+      base + "/schematics", base + "/../../schematics", "schematics"};
   char localAppData[MAX_PATH] = {};
   if (GetEnvironmentVariableA("LOCALAPPDATA", localAppData, MAX_PATH) > 0) {
-    candidates.push_back(std::string(localAppData) + "/Bedrockmetica/schematics");
+    candidates.push_back(std::string(localAppData) +
+                         "/Bedrockmetica/schematics");
   }
   for (const auto &c : candidates) {
     std::error_code ec;
@@ -216,7 +215,8 @@ void SeedStarterLibraryIfEmpty() {
 
       if (ext == ".bmet") {
         Bedrockmetica::BmetCodec::BmetSummary sum;
-        if (Bedrockmetica::BmetCodec::ReadSummary(s.filePath, sum) && sum.valid) {
+        if (Bedrockmetica::BmetCodec::ReadSummary(s.filePath, sum) &&
+            sum.valid) {
           if (!sum.name.empty())
             s.name = sum.name;
           s.w = std::max(1, sum.width);
@@ -224,8 +224,8 @@ void SeedStarterLibraryIfEmpty() {
           s.d = std::max(1, sum.depth);
           s.totalBlocks = sum.totalBlocks;
           for (const auto &m : sum.topMaterials) {
-            s.materials.push_back(
-                {m.displayName, 0, m.required, static_cast<ImU32>(m.approxAbgr)});
+            s.materials.push_back({m.displayName, 0, m.required,
+                                   static_cast<ImU32>(m.approxAbgr)});
           }
         }
       }
@@ -646,8 +646,8 @@ void DrawUnloadConfirmModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
 }
 
 void DrawSaveCaptureModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
-                          ImFont *fontDisplay, ImFont *fontBold, ImFont *fontReg,
-                          float ma) {
+                          ImFont *fontDisplay, ImFont *fontBold,
+                          ImFont *fontReg, float ma) {
   UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::ObsidianWindow, mPos,
                           curSize, ma, true);
 
@@ -672,9 +672,8 @@ void DrawSaveCaptureModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
            "Bounds: %d x %d x %d   |   Non-Air: %d   |   Loaded: %d%%", bw, bh,
            bd, blkCount, pct);
   UiDraw::DrawTextLeftEllipsis(
-      draw, fontBold, 15.0f, mPos.x + 24.0f, mPos.y + 92.0f,
-      curSize.x - 48.0f, infoBuf,
-      IM_COL32(180, 214, 255, static_cast<int>(255 * ma)));
+      draw, fontBold, 15.0f, mPos.x + 24.0f, mPos.y + 92.0f, curSize.x - 48.0f,
+      infoBuf, IM_COL32(180, 214, 255, static_cast<int>(255 * ma)));
 
   ImVec2 boxPos(mPos.x + 24.0f, mPos.y + 116.0f);
   ImVec2 boxSize(curSize.x - 48.0f, 46.0f);
@@ -823,7 +822,8 @@ void DrawRenameModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
         } else {
           std::error_code ec;
           std::filesystem::path oldP(entry.filePath);
-          std::filesystem::path dstP = oldP.parent_path() / (newName + entry.format);
+          std::filesystem::path dstP =
+              oldP.parent_path() / (newName + entry.format);
           std::filesystem::rename(oldP, dstP, ec);
           ok = !ec;
           if (ok)
@@ -859,16 +859,19 @@ void DrawCollapsedCornerHud(ImDrawList *draw, float screenW, float screenH,
     Bedrockmetica::CaptureManager::CapturePhase phase =
         Bedrockmetica::CaptureManager::GetPhase();
     UiAssets::PlateId bannerId =
-        (phase == Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave)
+        (phase ==
+         Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave)
             ? UiAssets::PlateId::EmeraldCTA
             : UiAssets::PlateId::BlueBanner;
     UiDraw::DrawPlate9Slice(draw, bannerId, capPos, capSize, 0.96f, true);
     std::string capTxt;
     if (phase == Bedrockmetica::CaptureManager::CapturePhase::ArmedNeedsPos1) {
       capTxt = "CAPTURE: BARE-HAND RIGHT-CLICK POS 1  |  [" + kn + "] MENU";
-    } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::HasPos1NeedsPos2) {
+    } else if (phase ==
+               Bedrockmetica::CaptureManager::CapturePhase::HasPos1NeedsPos2) {
       capTxt = "POS 1 SET: BARE-HAND RIGHT-CLICK POS 2  |  [" + kn + "] MENU";
-    } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave) {
+    } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::
+                            BoxLockedReadyToSave) {
       int pct = Bedrockmetica::CaptureManager::GetCapturedPercent();
       capTxt = "BOX LOCKED (" + std::to_string(pct) + "%)  |  PRESS [" + kn +
                "] TO SAVE";
@@ -1037,12 +1040,12 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
   rx -= (228.0f + 10.0f) * s;
 
   if (Bedrockmetica::CaptureManager::HasCapturedBox()) {
-    if (UiDraw::DrawActionButton(
-            draw, "##SaveCaptureHeaderBtn", "SAVE CAPTURE",
-            ImVec2(rx - 210.0f * s, hBtnY), ImVec2(210.0f * s, hBtnH),
-            UiAssets::PlateId::EmeraldCTA, fontDisplay, FsDisp(15.5f),
-            IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true,
-            alpha)) {
+    if (UiDraw::DrawActionButton(draw, "##SaveCaptureHeaderBtn", "SAVE CAPTURE",
+                                 ImVec2(rx - 210.0f * s, hBtnY),
+                                 ImVec2(210.0f * s, hBtnH),
+                                 UiAssets::PlateId::EmeraldCTA, fontDisplay,
+                                 FsDisp(15.5f), IM_COL32(255, 255, 255, 255),
+                                 IM_COL32(12, 62, 26, 255), true, alpha)) {
       snprintf(g_SaveNameBuf, sizeof(g_SaveNameBuf), "Capture %dx%dx%d",
                Bedrockmetica::CaptureManager::GetBoxWidth(),
                Bedrockmetica::CaptureManager::GetBoxHeight(),
@@ -1097,9 +1100,8 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
   ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
   ImGui::PushStyleColor(ImGuiCol_Text,
                         IM_COL32(236, 242, 255, static_cast<int>(255 * alpha)));
-  ImGui::PushStyleColor(
-      ImGuiCol_TextDisabled,
-      IM_COL32(150, 166, 198, static_cast<int>(220 * alpha)));
+  ImGui::PushStyleColor(ImGuiCol_TextDisabled,
+                        IM_COL32(150, 166, 198, static_cast<int>(220 * alpha)));
   ImGui::PushFont(fontReg, searchFontSz);
   ImGui::InputTextWithHint("##StructSearch", "Search saved structures...",
                            g_SearchBuf, sizeof(g_SearchBuf));
@@ -1911,10 +1913,11 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   if (!showSettings && !showUnload && !showSave && !showRename)
     return;
 
-  float dimAnim = showUnload
-                      ? g_UnloadModalAnim
-                      : (showSave ? g_SaveModalAnim
-                                  : (showRename ? g_RenameModalAnim : g_SettingsAnim));
+  float dimAnim =
+      showUnload
+          ? g_UnloadModalAnim
+          : (showSave ? g_SaveModalAnim
+                      : (showRename ? g_RenameModalAnim : g_SettingsAnim));
   float ma = alpha * dimAnim;
 
   ImGuiWindowFlags bgFlags =
@@ -1942,11 +1945,11 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   }
   ImGui::End();
 
-  ImVec2 baseSize =
-      showUnload ? ImVec2(580.0f, 276.0f)
-                 : (showSave ? ImVec2(560.0f, 260.0f)
-                             : (showRename ? ImVec2(540.0f, 240.0f)
-                                           : ImVec2(650.0f, 568.0f)));
+  ImVec2 baseSize = showUnload
+                        ? ImVec2(580.0f, 276.0f)
+                        : (showSave ? ImVec2(560.0f, 260.0f)
+                                    : (showRename ? ImVec2(540.0f, 240.0f)
+                                                  : ImVec2(650.0f, 568.0f)));
   float scaleIn = 0.94f + 0.06f * dimAnim;
   ImVec2 curSize(std::round(baseSize.x * scaleIn),
                  std::round(baseSize.y * scaleIn));

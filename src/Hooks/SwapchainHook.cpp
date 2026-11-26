@@ -467,6 +467,7 @@ static void __fastcall hkLevelRendererPlayerRender(void *lrp, void *baseCtx,
   if (g_oLevelRendererPlayerRender) {
     g_oLevelRendererPlayerRender(lrp, baseCtx, blockSource, hitPos);
   }
+  Bedrockmetica::CaptureManager::RenderWorldVisuals();
 }
 
 static void __fastcall hkRenderLevel(void *levelRender, void *scn, void *a3) {
@@ -476,7 +477,6 @@ static void __fastcall hkRenderLevel(void *levelRender, void *scn, void *a3) {
   }
   BedrockGame::UpdateFromRenderLevel(levelRender, scn);
   Bedrockmetica::CaptureManager::TickWorldUpdate();
-  Bedrockmetica::CaptureManager::RenderWorldVisuals();
 }
 
 static bool IsBlockingScreenLayer(const char *layer) {
