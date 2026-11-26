@@ -46,6 +46,10 @@ include_directories(
 set(BEDROCKMETICA_SOURCES
     src/dllmain.cpp
     src/Hooks/SwapchainHook.cpp
+    src/Core/SchematicDocument.cpp
+    src/Core/CaptureManager.cpp
+    src/IO/BmetCodec.cpp
+    src/SDK/BedrockGame.cpp
     src/UI/UiAssets.cpp
     src/UI/UiDraw.cpp
     src/UI/SchematicMenu.cpp

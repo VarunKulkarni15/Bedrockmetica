@@ -3,23 +3,20 @@
 #include "../Logger.hpp"
 
 void SigInit::init260() {
-    Logger::info("Loading verified memory signatures for Minecraft Bedrock 1.26.X", "Signatures");
+    Logger::info("Loading verified memory signatures for Minecraft Bedrock 1.26.6501.0", "Signatures");
 
-    ADD_SIG("LevelRenderer::renderLevel", "48 8b c4 48 89 58 ? 55 56 57 41 54 41 55 41 56 41 57 48 8d a8 ? ? ? ? 48 81 ec ? ? ? ? 0f 29 70 ? 0f 29 78 ? 44 0f 29 40 ? 44 0f 29 48 ? 44 0f 29 90 ? ? ? ? 44 0f 29 98 ? ? ? ? 44 0f 29 a0 ? ? ? ? 48 8b 05 ? ? ? ? 48 33 c4 48 89 85 ? ? ? ? 4d 8b f0");
-    ADD_SIG("LocalPlayer::applyTurnDelta", "48 8b c4 48 89 58 ? 48 89 70 ? 48 89 78 ? 55 41 54 41 55 41 56 41 57 48 8d 68 ? 48 81 ec ? ? ? ? 0f 29 70 ? 0f 29 78 ? 44 0f 29 40 ? 44 0f 29 48 ? 44 0f 29 50 ? 44 0f 29 98 ? ? ? ? 48 8b 05 ? ? ? ? 48 33 c4 48 89 45 ? 4c 8b ea");
-    ADD_SIG("ClientInstance::_updateScreenSizeVariables", "48 8B C4 48 89 58 ? 48 89 70 ? 55 57 41 54 41 56 41 57 48 8D 68 ? 48 81 EC ? ? ? ? 0F 29 70 ? 0F 29 78 ? 44 0F 29 40 ? 44 0F 29 48 ? 44 0F 29 50 ? 44 0F 29 98 ? ? ? ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 45 ? 0F 28 FB");
-    ADD_SIG("Actor::vtable", "48 8D 05 ? ? ? ? 48 89 01 49 8B 01 48 89 41 08 49 8B 41 08 48 89 41 10 41 8B 41 10 89 41 18 48 89 69");
-    ADD_SIG("mce::TextureGroup::getTexture", "48 89 54 24 ? 53 55 56 57 41 54 41 55 41 56 41 57 48 81 ec ? ? ? ? 48 8b 05 ? ? ? ? 48 33 c4 48 89 84 24 ? ? ? ? 44 88 4c 24");
-    ADD_SIG("SoundEngine::play", "40 53 55 56 57 41 54 41 55 41 56 41 57 48 81 EC E8 00 00 00 0F 29 B4 24 D0 00 00 00");
-    ADD_SIG("SoundEngine::play_alt", "40 53 55 56 57 41 56 41 57 48 81 EC C8 00 00 00 0F 29 B4 24 B0 00 00 00");
-    ADD_SIG("ScreenView::setupAndRender", "48 89 5C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? 48 81 EC ? ? ? ? 0F 29 BC 24 ? ? ? ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 85 ? ? ? ? 4C 8B FA");
-    ADD_SIG("ScreenView::setupAndRender_alt", "48 8B C4 48 89 58 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 ? ? ? ? 48 81 EC ? ? ? ? 0F 29 70 ? 0F 29 78 ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 85 ? ? ? ? 4C 8B FA 48 89 55");
-    ADD_SIG("ScreenView::setupAndRender_alt2", "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 98 FD");
-    ADD_SIG("InputHandler::tick", "E8 ?? ?? ?? ?? 48 8B 5E 78 33 ED");
-    ADD_SIG("InputHandler::tick_alt", "E8 ?? ?? ?? ?? 48 8B 5F 70 45 33 FF");
-    ADD_SIG("MouseInputVector", "48 2B 05 ? ? ? ? 8B 0D");
-    ADD_SIG("MouseDevice::feed", "E8 ? ? ? ? 40 88 6C 1F");
-    ADD_SIG("GameCore_handleMouseInput", "48 8B C4 48 89 58 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 ? 48 81 EC ? ? ? ? 0F 29 70 ? 0F 29 78 ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 45 ? 4C 89 45 ? 32 C0");
+    ADD_SIG("LevelRenderer::renderLevel", "55 41 57 41 56 41 54 56 57 53 48 81 EC C0 00 00 00 48 8D AC 24 80 00 00 00 48 C7 45 38 FE FF FF FF 4C 89 C3 48 89 D6 48 89 CF 8B 05 ? ? ? ?");
+    ADD_SIG("LevelRendererPlayer::render", "41 57 41 56 56 57 55 53 48 83 EC 48 4D 89 CE 4C 89 C6 48 89 D7 48 89 CB 48 8B 05 ? ? ? ? 48 31 E0 48 89 44 24 40");
+    ADD_SIG("LevelRendererPlayer::renderOutlineSelection", "55 41 57 41 56 41 54 56 57 53 48 81 EC 20 02 00 00 48 8D AC 24 80 00 00 00 44 0F 29 85 90 01 00");
+    ADD_SIG("MeshHelpers::renderMeshImmediately", "55 41 57 41 56 41 54 56 57 53 48 81 EC 50 04 00 00 48 8D AC 24 80 00 00 00 48 C7 85 C8 03 00 00 FE FF FF FF 80 BA 55 02 00 00 00");
+    ADD_SIG("Tessellator::begin", "56 57 55 53 48 83 EC 38 48 8B 05 ? ? ? ? 48 31 E0 48 89 44 24 30 80 B9 A0 02 00 00 00 0F 85 ? ? ? ? 48 89 CE");
+    ADD_SIG("Tessellator::color", "80 B9 54 02 00 00 00 0F 85 ? ? ? ? F3 0F 10 05 ? ? ? ? F3 0F 59 C8 F3 0F 2C C1 45 31 C0");
+    ADD_SIG("Tessellator::vertex", "41 57 41 56 41 55 41 54 56 57 55 53 48 83 EC 78 44 0F 29 4C 24 60 44 0F 29 44 24 50 0F 29 7C 24 40 0F 29 74 24 30 8B 81 98 02 00 00");
+    ADD_SIG("Tessellator::end", "55 41 57 41 56 41 55 41 54 56 57 53 48 81 EC 88 03 00 00 48 8D AC 24 80 00 00 00 44 0F 29 AD F0 02 00 00");
+    ADD_SIG("mce::Mesh::render", "55 41 57 41 56 41 55 41 54 56 57 53 48 81 EC 38 04 00 00 48 8D AC 24 80 00 00 00 0F 29 B5 A0 03 00 00 48 C7 85 98 03 00 00 FE FF FF FF 4D 89 CC 4D 89 C6 48");
+    ADD_SIG("mce::Mesh::~Mesh", "56 57 48 83 EC 28 48 89 CE E8 ? ? ? ? 48 8B 8E 48 02 00 00 48 85 C9 74 49 48 8B 96 58 02 00 00");
+    ADD_SIG("RenderMaterialGroup::getOrCreate", "55 56 57 48 83 EC 50 48 8D 6C 24 50 0F 29 75 F0 48 C7 45 E8 FE FF FF FF 49 89 D1 0F 57 F6 48 89 CF 0F 11 31 48 8B 02 48 8B 40 08 48 8D 55 D0 4C 89 C9 FF");
+
     ADD_SIG("GameCore::pointerHandler", "41 57 41 56 41 55 41 54 56 57 55 53 48 83 ec 68 4d 89 c7 48 89 d6 48 89");
     ADD_SIG("GameCore::rawMouseHandler", "41 56 56 57 55 53 48 83 ec 50 48 8b 05 ? ? ? ? 48 31 e0 48 89 44 24 ? 49 8b 00 48 83 78 68");
     ADD_SIG("GameCore::mouseBtnHandler", "41 56 56 57 55 53 48 83 EC 60 4C 89 C7 48 89 D6 48 8B 05 ? ? ? ? 48 31 E0 48 89");

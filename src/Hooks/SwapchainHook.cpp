@@ -14,6 +14,8 @@
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 
+#include "../Core/CaptureManager.hpp"
+#include "../SDK/BedrockGame.hpp"
 #include "../UI/SchematicMenu.hpp"
 #include "../UI/UiAssets.hpp"
 #include "../Utils/ConfigManager.hpp"
@@ -454,11 +456,27 @@ static bool TryReadScreenLayerName(const void *screenView, int visualTreeOff,
   return false;
 }
 
+typedef void(__fastcall *LevelRendererPlayerRenderFn)(void *, void *, void *,
+                                                       void *);
+static LevelRendererPlayerRenderFn g_oLevelRendererPlayerRender = nullptr;
+
+static void __fastcall hkLevelRendererPlayerRender(void *lrp, void *baseCtx,
+                                                   void *blockSource,
+                                                   void *hitPos) {
+  BedrockGame::UpdateFromLevelRendererPlayer(lrp, baseCtx, blockSource);
+  if (g_oLevelRendererPlayerRender) {
+    g_oLevelRendererPlayerRender(lrp, baseCtx, blockSource, hitPos);
+  }
+}
+
 static void __fastcall hkRenderLevel(void *levelRender, void *scn, void *a3) {
   g_LastRenderLevelMs.store(GetTickCount64());
   if (g_oRenderLevel) {
     g_oRenderLevel(levelRender, scn, a3);
   }
+  BedrockGame::UpdateFromRenderLevel(levelRender, scn);
+  Bedrockmetica::CaptureManager::TickWorldUpdate();
+  Bedrockmetica::CaptureManager::RenderWorldVisuals();
 }
 
 static bool IsBlockingScreenLayer(const char *layer) {
@@ -566,6 +584,12 @@ static void __fastcall hkMouseFeed(void *dev, char button, char action, short x,
       g_oMouseFeed(dev, button, action, x, y, 0, 0, a8);
     }
     return;
+  }
+  if (!g_bMenuOpen.load() && IsGameplayHud() &&
+      Bedrockmetica::CaptureManager::IsActive() && button == 2 && action == 1) {
+    if (Bedrockmetica::CaptureManager::HandleBareHandRightClick()) {
+      return;
+    }
   }
   if (g_oMouseFeed) {
     g_oMouseFeed(dev, button, action, x, y, dx, dy, a8);
@@ -691,11 +715,20 @@ static void InstallGameHooksOnce() {
     return false;
   };
 
+  BedrockGame::Initialize();
+
   uintptr_t renderLevelAddr = GET_SIG_ADDRESS("LevelRenderer::renderLevel");
   g_bRenderLevelHooked.store(
       tryHook("LevelRenderer::renderLevel", renderLevelAddr,
               reinterpret_cast<void *>(hkRenderLevel),
               reinterpret_cast<void **>(&g_oRenderLevel)));
+
+  uintptr_t lrpRenderAddr = GET_SIG_ADDRESS("LevelRendererPlayer::render");
+  if (lrpRenderAddr) {
+    tryHook("LevelRendererPlayer::render", lrpRenderAddr,
+            reinterpret_cast<void *>(hkLevelRendererPlayerRender),
+            reinterpret_cast<void **>(&g_oLevelRendererPlayerRender));
+  }
 
   uintptr_t setupRenderAddr = GET_SIG_ADDRESS("ScreenView::setupAndRender");
   if (!setupRenderAddr)
@@ -1211,8 +1244,9 @@ static LRESULT CALLBACK hkWndProc(HWND hWnd, UINT uMsg, WPARAM wParam,
 
   if (!g_bMenuOpen.load() && IsGameplayHud() &&
       SchematicMenu::IsCaptureModeActive() && uMsg == WM_RBUTTONDOWN) {
-    SchematicMenu::TriggerCaptureClickNotice();
-    return 0;
+    if (BedrockGame::IsLocalPlayerBareHanded()) {
+      return 0;
+    }
   }
 
   if (g_bMenuOpen.load()) {

@@ -1,5 +1,9 @@
 #include "SchematicMenu.hpp"
+#include "../Core/CaptureManager.hpp"
+#include "../Core/SchematicDocument.hpp"
 #include "../Hooks/SwapchainHook.hpp"
+#include "../IO/BmetCodec.hpp"
+#include "../SDK/BedrockGame.hpp"
 #include "../Utils/ConfigManager.hpp"
 #include "../Utils/SoundManager.hpp"
 #include "../Utils/ToastManager.hpp"
@@ -62,9 +66,13 @@ static float g_PreviewZoom = 1.0f;
 
 static bool g_ShowSettings = false;
 static bool g_ShowUnloadConfirm = false;
+static bool g_ShowSaveModal = false;
+static bool g_ShowRenameModal = false;
 static bool g_CaptureMode = false;
 static bool g_DeleteConfirm = false;
 static double g_DeleteConfirmTime = 0.0;
+static char g_SaveNameBuf[96] = "My Structure";
+static char g_RenameNameBuf[96] = "";
 static float g_UiScale = 1.0f;
 static int g_UiSizePreset = 1;
 static int g_TextSizePct = 115;
@@ -86,6 +94,8 @@ void SaveCurrentConfig() {
 static float g_OpenAnim = 0.0f;
 static float g_SettingsAnim = 0.0f;
 static float g_UnloadModalAnim = 0.0f;
+static float g_SaveModalAnim = 0.0f;
+static float g_RenameModalAnim = 0.0f;
 
 std::string ToLowerCopy(const std::string &s) {
   std::string out = s;
@@ -203,8 +213,27 @@ void SeedStarterLibraryIfEmpty() {
       s.thumb = UiAssets::ThumbId::Pagoda;
       s.filePath = entry.path().string();
       s.isDiskFile = true;
-      s.materials = {
-          {"Pending 3D Mesh Scan", 0, 0, IM_COL32(56, 166, 240, 255)}};
+
+      if (ext == ".bmet") {
+        Bedrockmetica::BmetCodec::BmetSummary sum;
+        if (Bedrockmetica::BmetCodec::ReadSummary(s.filePath, sum) && sum.valid) {
+          if (!sum.name.empty())
+            s.name = sum.name;
+          s.w = std::max(1, sum.width);
+          s.h = std::max(1, sum.height);
+          s.d = std::max(1, sum.depth);
+          s.totalBlocks = sum.totalBlocks;
+          for (const auto &m : sum.topMaterials) {
+            s.materials.push_back(
+                {m.displayName, 0, m.required, static_cast<ImU32>(m.approxAbgr)});
+          }
+        }
+      }
+
+      if (s.materials.empty()) {
+        s.materials = {
+            {"Pending 3D Mesh Scan", 0, 0, IM_COL32(56, 166, 240, 255)}};
+      }
       g_Entries.insert(g_Entries.begin(), std::move(s));
     }
   }
@@ -616,18 +645,238 @@ void DrawUnloadConfirmModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
   }
 }
 
+void DrawSaveCaptureModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
+                          ImFont *fontDisplay, ImFont *fontBold, ImFont *fontReg,
+                          float ma) {
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::ObsidianWindow, mPos,
+                          curSize, ma, true);
+
+  ImVec2 hdrPos(mPos.x + 14.0f, mPos.y + 14.0f);
+  ImVec2 hdrSize(curSize.x - 28.0f, 54.0f);
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::EmeraldCTA, hdrPos, hdrSize,
+                          ma, false);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontDisplay, 20.0f, hdrPos.x + 18.0f, hdrPos.y + 27.0f,
+      hdrSize.x - 36.0f, "SAVE CAPTURED STRUCTURE",
+      IM_COL32(255, 255, 255, static_cast<int>(255 * ma)),
+      IM_COL32(12, 62, 26, static_cast<int>(255 * ma)));
+
+  int bw = Bedrockmetica::CaptureManager::GetBoxWidth();
+  int bh = Bedrockmetica::CaptureManager::GetBoxHeight();
+  int bd = Bedrockmetica::CaptureManager::GetBoxDepth();
+  int blkCount = Bedrockmetica::CaptureManager::GetCapturedBlockCount();
+  int pct = Bedrockmetica::CaptureManager::GetCapturedPercent();
+
+  char infoBuf[160];
+  snprintf(infoBuf, sizeof(infoBuf),
+           "Bounds: %d x %d x %d   |   Non-Air: %d   |   Loaded: %d%%", bw, bh,
+           bd, blkCount, pct);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontBold, 15.0f, mPos.x + 24.0f, mPos.y + 92.0f,
+      curSize.x - 48.0f, infoBuf,
+      IM_COL32(180, 214, 255, static_cast<int>(255 * ma)));
+
+  ImVec2 boxPos(mPos.x + 24.0f, mPos.y + 116.0f);
+  ImVec2 boxSize(curSize.x - 48.0f, 46.0f);
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::DarkInset, boxPos, boxSize,
+                          ma, false);
+
+  float fontSz = UiDraw::ScaleFontSize(fontReg, 16.0f);
+  float padY = std::max(0.0f, std::round((boxSize.y - fontSz) * 0.5f));
+  ImGui::SetCursorScreenPos(ImVec2(boxPos.x + 14.0f, boxPos.y));
+  ImGui::PushItemWidth(boxSize.x - 28.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, padY));
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_Text,
+                        IM_COL32(236, 242, 255, static_cast<int>(255 * ma)));
+  ImGui::PushFont(fontReg, fontSz);
+  ImGui::InputTextWithHint("##SaveStructName", "Enter structure name...",
+                           g_SaveNameBuf, sizeof(g_SaveNameBuf));
+  ImGui::PopFont();
+  ImGui::PopStyleColor(3);
+  ImGui::PopStyleVar(1);
+  ImGui::PopItemWidth();
+
+  float btnY = mPos.y + curSize.y - 66.0f;
+  float btnW = (curSize.x - 58.0f) * 0.5f;
+  if (UiDraw::DrawActionButton(
+          draw, "##CancelSaveModal", "CANCEL", ImVec2(mPos.x + 22.0f, btnY),
+          ImVec2(btnW, 48.0f), UiAssets::PlateId::SlateCard, fontDisplay, 17.0f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(10, 12, 18, 255), true, ma)) {
+    g_ShowSaveModal = false;
+  }
+
+  if (UiDraw::DrawActionButton(
+          draw, "##ConfirmSaveModal", "SAVE .BMET",
+          ImVec2(mPos.x + 36.0f + btnW, btnY), ImVec2(btnW, 48.0f),
+          UiAssets::PlateId::EmeraldCTA, fontDisplay, 17.0f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true, ma)) {
+    std::string finalName = g_SaveNameBuf;
+    if (finalName.empty()) {
+      finalName = "Capture";
+    }
+    std::string savedPath;
+    Bedrockmetica::SchematicDocument doc;
+    if (Bedrockmetica::CaptureManager::FinalizeAndSaveBmet(
+            finalName, GetSchematicsDir(), savedPath, doc)) {
+      StructureEntry s;
+      s.id = std::filesystem::path(savedPath).filename().string();
+      s.name = doc.name;
+      s.format = ".bmet";
+      s.w = std::max(1, doc.width);
+      s.h = std::max(1, doc.height);
+      s.d = std::max(1, doc.depth);
+      s.totalBlocks = doc.totalNonAirBlocks;
+      s.thumb = UiAssets::ThumbId::Pagoda;
+      s.filePath = savedPath;
+      s.isDiskFile = true;
+      std::vector<Bedrockmetica::MaterialCount> mats = doc.BuildMaterialTally();
+      for (size_t i = 0; i < mats.size() && i < 6; ++i) {
+        s.materials.push_back({mats[i].displayName, 0, mats[i].required,
+                               static_cast<ImU32>(mats[i].approxAbgr)});
+      }
+      if (s.materials.empty()) {
+        s.materials.push_back(
+            {"Stone", 0, s.totalBlocks, IM_COL32(138, 144, 152, 255)});
+      }
+      g_Entries.insert(g_Entries.begin(), std::move(s));
+      g_SelectedIndex = 0;
+      g_ShowSaveModal = false;
+      g_CaptureMode = false;
+      Bedrockmetica::CaptureManager::SetActive(false);
+      SoundManager::Play(UISound::Success);
+      ToastManager::Show(ToastType::Success, "SAVED .BMET",
+                         "Saved '" + doc.name + "' (" +
+                             std::to_string(doc.totalNonAirBlocks) +
+                             " blocks).");
+    } else {
+      SoundManager::Play(UISound::Error);
+      ToastManager::Show(ToastType::Error, "SAVE FAILED",
+                         "Could not write .bmet file to schematics folder.");
+    }
+  }
+}
+
+void DrawRenameModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
+                     ImFont *fontDisplay, ImFont *fontBold, ImFont *fontReg,
+                     float ma) {
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::ObsidianWindow, mPos,
+                          curSize, ma, true);
+
+  ImVec2 hdrPos(mPos.x + 14.0f, mPos.y + 14.0f);
+  ImVec2 hdrSize(curSize.x - 28.0f, 54.0f);
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::BlueBanner, hdrPos, hdrSize,
+                          ma, false);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontDisplay, 20.0f, hdrPos.x + 18.0f, hdrPos.y + 27.0f,
+      hdrSize.x - 36.0f, "RENAME STRUCTURE",
+      IM_COL32(255, 255, 255, static_cast<int>(255 * ma)),
+      IM_COL32(10, 54, 102, static_cast<int>(255 * ma)));
+
+  ImVec2 boxPos(mPos.x + 24.0f, mPos.y + 98.0f);
+  ImVec2 boxSize(curSize.x - 48.0f, 46.0f);
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::DarkInset, boxPos, boxSize,
+                          ma, false);
+
+  float fontSz = UiDraw::ScaleFontSize(fontReg, 16.0f);
+  float padY = std::max(0.0f, std::round((boxSize.y - fontSz) * 0.5f));
+  ImGui::SetCursorScreenPos(ImVec2(boxPos.x + 14.0f, boxPos.y));
+  ImGui::PushItemWidth(boxSize.x - 28.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, padY));
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_Text,
+                        IM_COL32(236, 242, 255, static_cast<int>(255 * ma)));
+  ImGui::PushFont(fontReg, fontSz);
+  ImGui::InputTextWithHint("##RenameStructName", "New structure name...",
+                           g_RenameNameBuf, sizeof(g_RenameNameBuf));
+  ImGui::PopFont();
+  ImGui::PopStyleColor(3);
+  ImGui::PopStyleVar(1);
+  ImGui::PopItemWidth();
+
+  float btnY = mPos.y + curSize.y - 66.0f;
+  float btnW = (curSize.x - 58.0f) * 0.5f;
+  if (UiDraw::DrawActionButton(
+          draw, "##CancelRenameModal", "CANCEL", ImVec2(mPos.x + 22.0f, btnY),
+          ImVec2(btnW, 48.0f), UiAssets::PlateId::SlateCard, fontDisplay, 17.0f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(10, 12, 18, 255), true, ma)) {
+    g_ShowRenameModal = false;
+  }
+
+  if (UiDraw::DrawActionButton(
+          draw, "##ConfirmRenameModal", "APPLY RENAME",
+          ImVec2(mPos.x + 36.0f + btnW, btnY), ImVec2(btnW, 48.0f),
+          UiAssets::PlateId::EmeraldCTA, fontDisplay, 17.0f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true, ma)) {
+    std::string newName = g_RenameNameBuf;
+    if (!newName.empty() && g_SelectedIndex >= 0 &&
+        g_SelectedIndex < static_cast<int>(g_Entries.size())) {
+      StructureEntry &entry = g_Entries[g_SelectedIndex];
+      bool ok = true;
+      if (entry.isDiskFile && !entry.filePath.empty()) {
+        std::string newPath;
+        if (entry.format == ".bmet") {
+          ok = Bedrockmetica::BmetCodec::RenameInFile(entry.filePath, newName,
+                                                      newPath);
+        } else {
+          std::error_code ec;
+          std::filesystem::path oldP(entry.filePath);
+          std::filesystem::path dstP = oldP.parent_path() / (newName + entry.format);
+          std::filesystem::rename(oldP, dstP, ec);
+          ok = !ec;
+          if (ok)
+            newPath = dstP.string();
+        }
+        if (ok && !newPath.empty()) {
+          entry.filePath = newPath;
+          entry.id = std::filesystem::path(newPath).filename().string();
+        }
+      }
+      if (ok) {
+        entry.name = newName;
+        g_ShowRenameModal = false;
+        SoundManager::Play(UISound::Success);
+        ToastManager::Show(ToastType::Success, "RENAMED",
+                           "Structure renamed to '" + newName + "'.");
+      } else {
+        SoundManager::Play(UISound::Error);
+        ToastManager::Show(ToastType::Error, "RENAME FAILED",
+                           "Target filename already exists or is locked.");
+      }
+    }
+  }
+}
+
 void DrawCollapsedCornerHud(ImDrawList *draw, float screenW, float screenH,
                             ImFont *fontDisplay, ImFont *fontBold,
                             ImFont *fontReg) {
   std::string kn = SwapchainHook::GetMenuToggleKeyName();
   if (g_CaptureMode) {
-    ImVec2 capSize(std::min(560.0f, screenW - 40.0f), 58.0f);
+    ImVec2 capSize(std::min(620.0f, screenW - 40.0f), 58.0f);
     ImVec2 capPos(std::round((screenW - capSize.x) * 0.5f), 18.0f);
-    UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::BlueBanner, capPos,
-                            capSize, 0.96f, true);
-    std::string capTxt = "CAPTURE MODE ACTIVE  |  [" + kn + "] MENU";
+    Bedrockmetica::CaptureManager::CapturePhase phase =
+        Bedrockmetica::CaptureManager::GetPhase();
+    UiAssets::PlateId bannerId =
+        (phase == Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave)
+            ? UiAssets::PlateId::EmeraldCTA
+            : UiAssets::PlateId::BlueBanner;
+    UiDraw::DrawPlate9Slice(draw, bannerId, capPos, capSize, 0.96f, true);
+    std::string capTxt;
+    if (phase == Bedrockmetica::CaptureManager::CapturePhase::ArmedNeedsPos1) {
+      capTxt = "CAPTURE: BARE-HAND RIGHT-CLICK POS 1  |  [" + kn + "] MENU";
+    } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::HasPos1NeedsPos2) {
+      capTxt = "POS 1 SET: BARE-HAND RIGHT-CLICK POS 2  |  [" + kn + "] MENU";
+    } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave) {
+      int pct = Bedrockmetica::CaptureManager::GetCapturedPercent();
+      capTxt = "BOX LOCKED (" + std::to_string(pct) + "%)  |  PRESS [" + kn +
+               "] TO SAVE";
+    } else {
+      capTxt = "CAPTURE MODE ACTIVE  |  [" + kn + "] MENU";
+    }
     UiDraw::DrawTextCentered(
-        draw, fontDisplay, 19.0f, capPos,
+        draw, fontDisplay, 17.5f, capPos,
         ImVec2(capPos.x + capSize.x, capPos.y + capSize.y - 2.0f),
         capTxt.c_str(), IM_COL32(255, 255, 255, 255),
         IM_COL32(10, 54, 102, 255));
@@ -776,6 +1025,7 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
           fontDisplay, FsDisp(16.0f), IM_COL32(255, 255, 255, 255),
           IM_COL32(10, 56, 106, 255), true, alpha)) {
     g_CaptureMode = !g_CaptureMode;
+    Bedrockmetica::CaptureManager::SetActive(g_CaptureMode);
     std::string kn = SwapchainHook::GetMenuToggleKeyName();
     ToastManager::Show(g_CaptureMode ? ToastType::Info : ToastType::Warning,
                        "CAPTURE MODE",
@@ -783,6 +1033,22 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
                                         kn + "] and select Pos1 / Pos2.")
                                      : "Capture mode paused.",
                        "[" + kn + "]");
+  }
+  rx -= (228.0f + 10.0f) * s;
+
+  if (Bedrockmetica::CaptureManager::HasCapturedBox()) {
+    if (UiDraw::DrawActionButton(
+            draw, "##SaveCaptureHeaderBtn", "SAVE CAPTURE",
+            ImVec2(rx - 210.0f * s, hBtnY), ImVec2(210.0f * s, hBtnH),
+            UiAssets::PlateId::EmeraldCTA, fontDisplay, FsDisp(15.5f),
+            IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true,
+            alpha)) {
+      snprintf(g_SaveNameBuf, sizeof(g_SaveNameBuf), "Capture %dx%dx%d",
+               Bedrockmetica::CaptureManager::GetBoxWidth(),
+               Bedrockmetica::CaptureManager::GetBoxHeight(),
+               Bedrockmetica::CaptureManager::GetBoxDepth());
+      g_ShowSaveModal = true;
+    }
   }
 
   const float bodyY = hdrPos.y + hdrSize.y + std::round(16.0f * s);
@@ -1109,14 +1375,15 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
     g_DeleteConfirm = false;
   }
 
-  float delW = std::round(rightW * 0.27f);
-  float expW = std::round(rightW * 0.27f);
-  float loadW = rightW - delW - expW - 20.0f * s;
+  float delW = std::round(rightW * 0.21f);
+  float renW = std::round(rightW * 0.21f);
+  float expW = std::round(rightW * 0.21f);
+  float loadW = rightW - delW - renW - expW - 30.0f * s;
 
   if (UiDraw::DrawActionButton(
           draw, "##DeleteStructBtn", g_DeleteConfirm ? "CONFIRM?" : "DELETE",
           ImVec2(rightX, ctaY), ImVec2(delW, botBarH),
-          UiAssets::PlateId::RedDanger, fontDisplay, FsDisp(15.0f),
+          UiAssets::PlateId::RedDanger, fontDisplay, FsDisp(14.5f),
           IM_COL32(255, 255, 255, 255), IM_COL32(107, 18, 22, 255),
           sel != nullptr, alpha)) {
     if (!g_DeleteConfirm) {
@@ -1127,6 +1394,10 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
           "Click DELETE again within 3s to remove from library.");
     } else if (sel) {
       std::string removedName = sel->name;
+      if (sel->isDiskFile && !sel->filePath.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(sel->filePath, ec);
+      }
       g_Entries.erase(g_Entries.begin() + g_SelectedIndex);
       g_SelectedIndex =
           std::clamp(g_SelectedIndex, 0,
@@ -1138,9 +1409,22 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
   }
 
   if (UiDraw::DrawActionButton(
+          draw, "##RenameStructBtn", "RENAME",
+          ImVec2(rightX + delW + 10.0f * s, ctaY), ImVec2(renW, botBarH),
+          UiAssets::PlateId::SlateCard, fontDisplay, FsDisp(14.5f),
+          IM_COL32(255, 255, 255, 255), IM_COL32(10, 12, 18, 255),
+          sel != nullptr, alpha)) {
+    if (sel) {
+      snprintf(g_RenameNameBuf, sizeof(g_RenameNameBuf), "%s",
+               sel->name.c_str());
+      g_ShowRenameModal = true;
+    }
+  }
+
+  if (UiDraw::DrawActionButton(
           draw, "##ExportStructBtn", "EXPORT",
-          ImVec2(rightX + delW + 10.0f * s, ctaY), ImVec2(expW, botBarH),
-          UiAssets::PlateId::BlueBanner, fontDisplay, FsDisp(15.0f),
+          ImVec2(rightX + delW + renW + 20.0f * s, ctaY), ImVec2(expW, botBarH),
+          UiAssets::PlateId::BlueBanner, fontDisplay, FsDisp(14.5f),
           IM_COL32(255, 255, 255, 255), IM_COL32(10, 54, 102, 255),
           sel != nullptr, alpha)) {
     if (sel) {
@@ -1150,7 +1434,7 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
     }
   }
 
-  ImVec2 heroPos(rightX + delW + expW + 20.0f * s, ctaY);
+  ImVec2 heroPos(rightX + delW + renW + expW + 30.0f * s, ctaY);
   ImVec2 heroSize(loadW, botBarH);
   ImU32 heroShadow = IM_COL32(12, 62, 26, 255);
 
@@ -1622,10 +1906,15 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
                      ImFont *fontDisplay, ImFont *fontBold, ImFont *fontReg) {
   bool showSettings = (g_SettingsAnim > 0.02f);
   bool showUnload = (g_UnloadModalAnim > 0.02f);
-  if (!showSettings && !showUnload)
+  bool showSave = (g_SaveModalAnim > 0.02f);
+  bool showRename = (g_RenameModalAnim > 0.02f);
+  if (!showSettings && !showUnload && !showSave && !showRename)
     return;
 
-  float dimAnim = showUnload ? g_UnloadModalAnim : g_SettingsAnim;
+  float dimAnim = showUnload
+                      ? g_UnloadModalAnim
+                      : (showSave ? g_SaveModalAnim
+                                  : (showRename ? g_RenameModalAnim : g_SettingsAnim));
   float ma = alpha * dimAnim;
 
   ImGuiWindowFlags bgFlags =
@@ -1648,11 +1937,16 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
     SwapchainHook::CancelKeybindCapture();
     g_ShowSettings = false;
     g_ShowUnloadConfirm = false;
+    g_ShowSaveModal = false;
+    g_ShowRenameModal = false;
   }
   ImGui::End();
 
   ImVec2 baseSize =
-      showUnload ? ImVec2(580.0f, 276.0f) : ImVec2(650.0f, 568.0f);
+      showUnload ? ImVec2(580.0f, 276.0f)
+                 : (showSave ? ImVec2(560.0f, 260.0f)
+                             : (showRename ? ImVec2(540.0f, 240.0f)
+                                           : ImVec2(650.0f, 568.0f)));
   float scaleIn = 0.94f + 0.06f * dimAnim;
   ImVec2 curSize(std::round(baseSize.x * scaleIn),
                  std::round(baseSize.y * scaleIn));
@@ -1681,6 +1975,12 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   if (showUnload) {
     DrawUnloadConfirmModal(draw, mPos, curSize, active, fontDisplay, fontBold,
                            fontReg, alpha * g_UnloadModalAnim);
+  } else if (showSave) {
+    DrawSaveCaptureModal(draw, mPos, curSize, fontDisplay, fontBold, fontReg,
+                         alpha * g_SaveModalAnim);
+  } else if (showRename) {
+    DrawRenameModal(draw, mPos, curSize, fontDisplay, fontBold, fontReg,
+                    alpha * g_RenameModalAnim);
   } else if (showSettings) {
     DrawSettingsModal(draw, mPos, curSize, fontDisplay, fontBold, fontReg,
                       alpha * g_SettingsAnim);
@@ -1707,7 +2007,10 @@ void Initialize() {
 
 bool IsCaptureModeActive() { return g_CaptureMode; }
 
-void SetCaptureModeActive(bool active) { g_CaptureMode = active; }
+void SetCaptureModeActive(bool active) {
+  g_CaptureMode = active;
+  Bedrockmetica::CaptureManager::SetActive(active);
+}
 
 void TriggerCaptureClickNotice() {
   ToastManager::Show(
@@ -1715,12 +2018,17 @@ void TriggerCaptureClickNotice() {
       "Selection point recorded (3D outline plugs in next stage).");
 }
 
-bool HasOpenModal() { return g_ShowSettings || g_ShowUnloadConfirm; }
+bool HasOpenModal() {
+  return g_ShowSettings || g_ShowUnloadConfirm || g_ShowSaveModal ||
+         g_ShowRenameModal;
+}
 
 void CloseActiveModal() {
   SwapchainHook::CancelKeybindCapture();
   g_ShowSettings = false;
   g_ShowUnloadConfirm = false;
+  g_ShowSaveModal = false;
+  g_ShowRenameModal = false;
 }
 
 void Render(float screenWidth, float screenHeight, bool menuOpen) {
@@ -1757,6 +2065,12 @@ void Render(float screenWidth, float screenHeight, bool menuOpen) {
       (1.0f - std::exp(-24.0f * dt));
   g_UnloadModalAnim +=
       (((g_ShowUnloadConfirm && menuOpen) ? 1.0f : 0.0f) - g_UnloadModalAnim) *
+      (1.0f - std::exp(-24.0f * dt));
+  g_SaveModalAnim +=
+      (((g_ShowSaveModal && menuOpen) ? 1.0f : 0.0f) - g_SaveModalAnim) *
+      (1.0f - std::exp(-24.0f * dt));
+  g_RenameModalAnim +=
+      (((g_ShowRenameModal && menuOpen) ? 1.0f : 0.0f) - g_RenameModalAnim) *
       (1.0f - std::exp(-24.0f * dt));
 
   if (g_OpenAnim <= 0.01f) {
