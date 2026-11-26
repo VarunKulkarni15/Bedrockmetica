@@ -53,6 +53,7 @@ set(BEDROCKMETICA_SOURCES
     src/SDK/BedrockGame.cpp
     src/UI/UiAssets.cpp
     src/UI/BlockTextureRegistry.cpp
+    src/UI/PreviewRenderer.cpp
     src/UI/UiDraw.cpp
     src/UI/SchematicMenu.cpp
 

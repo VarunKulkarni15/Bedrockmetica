@@ -10,6 +10,7 @@
 #include "../Utils/ToastManager.hpp"
 #include "../Utils/Utils.hpp"
 #include "BlockTextureRegistry.hpp"
+#include "PreviewRenderer.hpp"
 #include "UiAssets.hpp"
 #include "UiDraw.hpp"
 
@@ -353,7 +354,21 @@ void DrawIsometricGridPlaceholder(ImDrawList *draw, ImVec2 vpPos, ImVec2 vpSize,
   draw->AddQuad(d0, d1, d2, d3,
                 IM_COL32(72, 224, 255, static_cast<int>(180 * alpha)), 2.0f);
 
-  if (sel) {
+  if (sel && sel->isDiskFile && !sel->filePath.empty()) {
+    PreviewRenderer::SetStructurePath(sel->filePath, sel->format);
+  } else {
+    PreviewRenderer::SetStructurePath("", "");
+  }
+
+  if (PreviewRenderer::HasMesh()) {
+    PreviewRenderer::RenderViewport(draw, vpPos, vpSize, g_PreviewYaw,
+                                    g_PreviewPitch, g_PreviewZoom, alpha);
+    UiDraw::DrawTextLeftEllipsis(
+        draw, fontReg, 13.0f, vpPos.x + 16.0f, vpPos.y + vpSize.y - 18.0f,
+        vpSize.x - 32.0f, "Drag to Orbit  |  Scroll to Zoom",
+        IM_COL32(178, 198, 228, static_cast<int>(210 * alpha)),
+        IM_COL32(8, 10, 16, static_cast<int>(220 * alpha)), 1.0f);
+  } else if (sel) {
     char infoBuf[96];
     snprintf(infoBuf, sizeof(infoBuf), "3D Stage Ready  (%d x %d x %d)", sel->w,
              sel->h, sel->d);
@@ -365,7 +380,7 @@ void DrawIsometricGridPlaceholder(ImDrawList *draw, ImVec2 vpPos, ImVec2 vpSize,
     UiDraw::DrawTextCentered(
         draw, fontReg, 15.0f, ImVec2(vpPos.x + 24.0f, center.y - 40.0f),
         ImVec2(vpPos.x + vpSize.x - 24.0f, center.y - 14.0f),
-        "Drag to orbit floor grid - 3D mesh attaches in next stage",
+        "Capture or Import a schematic to inspect its 3D voxel preview",
         IM_COL32(156, 172, 204, static_cast<int>(210 * alpha)),
         IM_COL32(8, 10, 16, static_cast<int>(200 * alpha)), 1.0f);
   }
@@ -786,6 +801,7 @@ void UpsertDiskEntryFromPath(const std::string &filePath) {
     if (g_Entries[i].isDiskFile &&
         ToLowerCopy(g_Entries[i].filePath) == ToLowerCopy(filePath)) {
       g_Entries[i] = std::move(s);
+      PreviewRenderer::Invalidate();
       SelectEntry(static_cast<int>(i));
       return;
     }

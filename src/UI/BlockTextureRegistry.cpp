@@ -53,6 +53,7 @@ static int g_NextSlot = 0;
 static std::unordered_map<std::string, BlockFaceUVs> g_TileCache;
 static std::unordered_map<std::string, RawBlockTexSpec> g_BlocksJsonMap;
 static std::unordered_map<std::string, TerrainTexSpec> g_TerrainJsonMap;
+static std::vector<TerrainTexSpec> g_ExtraArraySpecs;
 static std::unordered_map<std::string, BlockFaces> g_ResolvedCache;
 
 static ID3D11ShaderResourceView *g_Dx11Srv = nullptr;
@@ -273,13 +274,14 @@ bool ParseTerrainEntryValue(JsonCursor &jc, TerrainTexSpec &out) {
     }
     bool gotFirst = false;
     while (jc.p < jc.s.size()) {
+      TerrainTexSpec elem;
+      if (!ParseTerrainEntryValue(jc, elem))
+        return false;
       if (!gotFirst) {
-        if (!ParseTerrainEntryValue(jc, out))
-          return false;
+        out = elem;
         gotFirst = true;
-      } else {
-        if (!jc.SkipValue(2))
-          return false;
+      } else if (!elem.path.empty()) {
+        g_ExtraArraySpecs.push_back(std::move(elem));
       }
       jc.SkipWs();
       if (jc.p < jc.s.size() && jc.s[jc.p] == ',') {
@@ -764,6 +766,11 @@ void BuildCpuAtlasOnce() {
     uint32_t rgb = kv.second.hasTint ? kv.second.tintRgb : 0x79C05A;
     AllocAtlasTile(kv.second.path, rgb, tint);
   }
+  for (const auto &ex : g_ExtraArraySpecs) {
+    if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
+      break;
+    AllocAtlasTile(ex.path, ex.tintRgb, ex.hasTint);
+  }
 
   Logger::info("BlockTextureRegistry built atlas (" +
                    std::to_string(g_NextSlot) + " tiles loaded)",
@@ -816,6 +823,24 @@ std::string NormalizeBlockAlias(const std::string &id) {
     }
   }
 
+  for (const char *col :
+       {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink",
+        "gray", "light_gray", "silver", "cyan", "purple", "blue", "brown",
+        "green", "red", "black"}) {
+    std::string c(col);
+    std::string legacyCol = (c == "light_gray") ? "silver" : c;
+    if (s == c + "_wool" || s == c + "_carpet")
+      return "wool_colored_" + legacyCol;
+    if (s == c + "_terracotta")
+      return "hardened_clay_stained_" + legacyCol;
+    if (s == c + "_concrete_powder")
+      return "concrete_powder_" + legacyCol;
+    if (s == c + "_concrete")
+      return "concrete_" + legacyCol;
+    if (s == c + "_stained_glass" || s == c + "_stained_glass_pane")
+      return "glass_" + legacyCol;
+  }
+
   for (const char *wood :
        {"oak", "spruce", "birch", "jungle", "acacia", "dark_oak"}) {
     std::string w(wood);
@@ -826,6 +851,8 @@ std::string NormalizeBlockAlias(const std::string &id) {
       return "planks_" + texWood;
   }
 
+  if (s.rfind("light_block", 0) == 0)
+    return "glowstone";
   if (s == "stone_brick")
     return "stonebrick";
   return s;
