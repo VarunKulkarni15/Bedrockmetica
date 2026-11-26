@@ -779,7 +779,10 @@ void BuildCpuAtlasOnce() {
       auto dot = fname.find_last_of('.');
       if (dot != std::string::npos)
         fname = fname.substr(0, dot);
-      bool tint = (fname == "grass_top") ||
+      bool tint = (fname == "grass_top") || (fname == "tallgrass") ||
+                  (fname == "double_plant_grass_bottom") ||
+                  (fname == "double_plant_grass_top") ||
+                  (fname == "fern") || (fname == "waterlily") ||
                   (fname.find("leaves") != std::string::npos);
       AllocAtlasTile(fname, tint ? 0x79C05A : 0, tint);
     }
@@ -868,6 +871,22 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "glowstone";
   if (s == "stone_brick")
     return "stonebrick";
+  if (s == "andesite")
+    return "stone_andesite";
+  if (s == "polished_andesite")
+    return "stone_andesite_smooth";
+  if (s == "granite")
+    return "stone_granite";
+  if (s == "polished_granite")
+    return "stone_granite_smooth";
+  if (s == "diorite")
+    return "stone_diorite";
+  if (s == "polished_diorite")
+    return "stone_diorite_smooth";
+  if (s == "lily_pad" || s == "waterlily")
+    return "waterlily";
+  if (s == "standing_banner" || s == "wall_banner")
+    return "planks_oak";
   return s;
 }
 

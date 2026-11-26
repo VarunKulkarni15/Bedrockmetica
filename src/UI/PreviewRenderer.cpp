@@ -55,8 +55,41 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
       std::max({doc.width, doc.height, doc.depth, 4}));
 
   std::vector<BlockTextureRegistry::BlockFaces> palFaces(doc.palette.size());
+  std::vector<int> palShape(doc.palette.size(), 0);
+  auto classifyShape = [](const std::string &name) -> int {
+    if (name.find("tall_grass") != std::string::npos ||
+        name.find("short_grass") != std::string::npos ||
+        name.find("tallgrass") != std::string::npos ||
+        name.find("fern") != std::string::npos ||
+        name.find("flower") != std::string::npos ||
+        name.find("poppy") != std::string::npos ||
+        name.find("dandelion") != std::string::npos ||
+        name.find("sapling") != std::string::npos ||
+        name.find("sugar_cane") != std::string::npos ||
+        name.find("reeds") != std::string::npos)
+      return 1;
+    if (name.find("pressure_plate") != std::string::npos ||
+        name.find("carpet") != std::string::npos ||
+        name.find("pink_petals") != std::string::npos ||
+        name.find("waterlily") != std::string::npos ||
+        name.find("lily_pad") != std::string::npos ||
+        name.find("snow_layer") != std::string::npos)
+      return 2;
+    if (name.find("_slab") != std::string::npos)
+      return 3;
+    if (name.find("_wall") != std::string::npos ||
+        name.find("_fence") != std::string::npos)
+      return 4;
+    if (name.find("glass_pane") != std::string::npos ||
+        name.find("iron_bars") != std::string::npos)
+      return 5;
+    if (name.find("banner") != std::string::npos)
+      return 6;
+    return 0;
+  };
   for (size_t i = 1; i < doc.palette.size(); ++i) {
     palFaces[i] = BlockTextureRegistry::ResolveBlockFaces(doc.palette[i].name);
+    palShape[i] = classifyShape(doc.palette[i].name);
   }
 
   auto getBlk = [&](int32_t x, int32_t y, int32_t z) -> uint16_t {
@@ -64,6 +97,12 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
         z >= doc.depth)
       return 0;
     return doc.GetBlock(0, x, y, z);
+  };
+  auto isOpaqueFull = [&](int32_t x, int32_t y, int32_t z) -> bool {
+    uint16_t pid = getBlk(x, y, z);
+    if (pid == 0 || pid >= palShape.size())
+      return false;
+    return palShape[pid] == 0 && doc.palette[pid].isSolid;
   };
 
   const float s = static_cast<float>(step);
@@ -75,6 +114,7 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
           continue;
 
         const auto &faces = palFaces[pid];
+        int shape = palShape[pid];
         uint32_t abgr = doc.palette[pid].approxAbgr;
         uint8_t cr = static_cast<uint8_t>(abgr & 0xFF);
         uint8_t cg = static_cast<uint8_t>((abgr >> 8) & 0xFF);
@@ -115,27 +155,77 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
           g_Quads.push_back(q);
         };
 
-        if (getBlk(x, y + step, z) == 0) {
+        if (shape == 1) {
+          const auto &uv = faces.north.valid ? faces.north : faces.up;
+          addFace(bx0, by1, bz0, bx1, by1, bz1, bx1, by0, bz1, bx0, by0, bz0,
+                  0.7f, 0.2f, -0.7f, 0.9f, uv);
+          addFace(bx1, by1, bz1, bx0, by1, bz0, bx0, by0, bz0, bx1, by0, bz1,
+                  -0.7f, 0.2f, 0.7f, 0.9f, uv);
+          addFace(bx1, by1, bz0, bx0, by1, bz1, bx0, by0, bz1, bx1, by0, bz0,
+                  0.7f, 0.2f, 0.7f, 0.85f, uv);
+          addFace(bx0, by1, bz1, bx1, by1, bz0, bx1, by0, bz0, bx0, by0, bz1,
+                  -0.7f, 0.2f, -0.7f, 0.85f, uv);
+          continue;
+        }
+
+        if (shape == 2) {
+          by1 = by0 + s * 0.08f;
+        } else if (shape == 3) {
+          bool topSlab = false;
+          for (const auto &st : doc.palette[pid].states) {
+            if (st.key == "top_slot_bit" && st.intVal != 0)
+              topSlab = true;
+          }
+          if (topSlab)
+            by0 = by0 + s * 0.5f;
+          else
+            by1 = by0 + s * 0.5f;
+        } else if (shape == 4) {
+          bx0 += s * 0.25f;
+          bx1 -= s * 0.25f;
+          bz0 += s * 0.25f;
+          bz1 -= s * 0.25f;
+        } else if (shape == 5) {
+          bool connX = (getBlk(x - step, y, z) != 0) ||
+                       (getBlk(x + step, y, z) != 0);
+          bool connZ = (getBlk(x, y, z - step) != 0) ||
+                       (getBlk(x, y, z + step) != 0);
+          if (connZ && !connX) {
+            bx0 += s * 0.42f;
+            bx1 -= s * 0.42f;
+          } else {
+            bz0 += s * 0.42f;
+            bz1 -= s * 0.42f;
+          }
+        } else if (shape == 6) {
+          bx0 += s * 0.42f;
+          bx1 -= s * 0.42f;
+          bz0 += s * 0.12f;
+          bz1 -= s * 0.12f;
+        }
+
+        bool fullCube = (shape == 0);
+        if (!fullCube || !isOpaqueFull(x, y + step, z)) {
           addFace(bx0, by1, bz0, bx1, by1, bz0, bx1, by1, bz1, bx0, by1, bz1,
                   0.0f, 1.0f, 0.0f, 1.0f, faces.up);
         }
-        if (getBlk(x, y - step, z) == 0) {
+        if (!fullCube || !isOpaqueFull(x, y - step, z)) {
           addFace(bx0, by0, bz1, bx1, by0, bz1, bx1, by0, bz0, bx0, by0, bz0,
                   0.0f, -1.0f, 0.0f, 0.55f, faces.down);
         }
-        if (getBlk(x, y, z + step) == 0) {
+        if (!fullCube || !isOpaqueFull(x, y, z + step)) {
           addFace(bx0, by1, bz1, bx1, by1, bz1, bx1, by0, bz1, bx0, by0, bz1,
                   0.0f, 0.0f, 1.0f, 0.78f, faces.south);
         }
-        if (getBlk(x, y, z - step) == 0) {
+        if (!fullCube || !isOpaqueFull(x, y, z - step)) {
           addFace(bx1, by1, bz0, bx0, by1, bz0, bx0, by0, bz0, bx1, by0, bz0,
                   0.0f, 0.0f, -1.0f, 0.72f, faces.north);
         }
-        if (getBlk(x + step, y, z) == 0) {
+        if (!fullCube || !isOpaqueFull(x + step, y, z)) {
           addFace(bx1, by1, bz1, bx1, by1, bz0, bx1, by0, bz0, bx1, by0, bz1,
                   1.0f, 0.0f, 0.0f, 0.86f, faces.east);
         }
-        if (getBlk(x - step, y, z) == 0) {
+        if (!fullCube || !isOpaqueFull(x - step, y, z)) {
           addFace(bx0, by1, bz0, bx0, by1, bz1, bx0, by0, bz1, bx0, by0, bz0,
                   -1.0f, 0.0f, 0.0f, 0.66f, faces.west);
         }
