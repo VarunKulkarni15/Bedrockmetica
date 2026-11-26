@@ -31,6 +31,7 @@ static void *g_ClientInstance = nullptr;
 static void *g_BlockSource = nullptr;
 static void *g_ScreenContext = nullptr;
 static Vec3f g_CameraOrigin{};
+static Vec3f g_CameraForward{0.0f, 0.0f, -1.0f};
 
 static bool IsValidReadablePtr(const void *p) {
   uintptr_t v = reinterpret_cast<uintptr_t>(p);
@@ -734,111 +735,104 @@ void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
   }
 }
 
-void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
-                          float bgA, float brdR, float brdG, float brdB,
-                          float fgR, float fgG, float fgB, float fgA) {
-  if (!IsRenderReady())
+static bool TryReadCameraForwardSeh(void *ci, Vec3f &outFwd) {
+  __try {
+    int lvlIdx = GET_OFFSET("ClientInstance::getLevelVIdx");
+    if (lvlIdx <= 0)
+      lvlIdx = 167;
+    void *lvl = CallVFunc<void *>(static_cast<size_t>(lvlIdx), ci);
+    if (!IsValidReadablePtr(lvl))
+      return false;
+
+    int hitIdx = GET_OFFSET("Level::getHitResultVIdx");
+    if (hitIdx <= 0)
+      hitIdx = 335;
+    const auto *hr =
+        CallVFunc<const RawHitResultHeader *>(static_cast<size_t>(hitIdx), lvl);
+    if (!IsValidReadablePtr(hr))
+      return false;
+
+    float fx = hr->rayDir[0];
+    float fy = hr->rayDir[1];
+    float fz = hr->rayDir[2];
+    float len = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (len > 0.001f && len < 10.0f && !std::isnan(len)) {
+      outFwd = {fx / len, fy / len, fz / len};
+      return true;
+    }
+    return false;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+void UpdateCameraForward() {
+  void *ci = GetClientInstance();
+  if (!IsValidReadablePtr(ci))
     return;
-  void *scn = GetScreenContext();
-  void *tess = GetTessellator();
-  void *mat = GetSelectionOverlayMaterial();
-  if (!scn || !tess || !mat)
-    return;
+  Vec3f fwd{};
+  if (TryReadCameraForwardSeh(ci, fwd)) {
+    std::lock_guard<std::mutex> lock(g_StateMutex);
+    g_CameraForward = fwd;
+  }
+}
 
-  Vec3f origin = GetCameraOrigin();
-  float dx = cx - origin.x;
-  float dz = cz - origin.z;
+bool WorldToScreen(float wx, float wy, float wz, float screenW, float screenH,
+                   float &outX, float &outY, float &outDist) {
+  if (screenW <= 1.0f || screenH <= 1.0f || !IsValidReadablePtr(g_LevelRendererPlayer))
+    return false;
 
-  float hLen = std::sqrt(dx * dx + dz * dz);
-  float rx = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
-  float rz = (hLen > 0.001f) ? (-dx / hLen) : 0.0f;
-  float fx = (hLen > 0.001f) ? (dx / hLen) : 0.0f;
-  float fz = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
+  Vec3f origin{};
+  Vec3f fwd{};
+  {
+    std::lock_guard<std::mutex> lock(g_StateMutex);
+    origin = g_CameraOrigin;
+    fwd = g_CameraForward;
+  }
 
-  float hs = halfSize;
+  float rx = fwd.y * 0.0f - fwd.z * 1.0f;
+  float ry = fwd.z * 0.0f - fwd.x * 0.0f;
+  float rz = fwd.x * 1.0f - fwd.y * 0.0f;
+  float rLen = std::sqrt(rx * rx + ry * ry + rz * rz);
+  if (rLen < 0.001f) {
+    rx = 1.0f;
+    ry = 0.0f;
+    rz = 0.0f;
+  } else {
+    rx /= rLen;
+    ry /= rLen;
+    rz /= rLen;
+  }
 
-  float ocx = cx - origin.x;
-  float ocy = cy - origin.y;
-  float ocz = cz - origin.z;
+  float ux = ry * fwd.z - rz * fwd.y;
+  float uy = rz * fwd.x - rx * fwd.z;
+  float uz = rx * fwd.y - ry * fwd.x;
 
-  auto emitPanel = [&](float u0, float v0, float u1, float v1, float fwdOff) {
-    float px = ocx + fx * fwdOff;
-    float pz = ocz + fz * fwdOff;
-    float x0 = px + rx * u0, z0 = pz + rz * u0;
-    float x1 = px + rx * u1, z1 = pz + rz * u1;
-    float y0 = ocy + v0, y1 = ocy + v1;
-    EmitQuadFace(tess, x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0);
-    EmitQuadFace(tess, x1, y0, z1, x0, y0, z0, x0, y1, z0, x1, y1, z1);
-  };
+  float dx = wx - origin.x;
+  float dy = wy - origin.y;
+  float dz = wz - origin.z;
+  outDist = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-  auto drawColoredGroup = [&](float r, float g, float b, float a, int modeVerts,
-                              auto &&emitFn) {
-    __try {
-      uintptr_t colOff =
-          static_cast<uintptr_t>(GET_OFFSET("ScreenContext::colorHolder"));
-      if (colOff == 0)
-        colOff = 0x30;
-      auto *colHolder = *reinterpret_cast<float **>(
-          reinterpret_cast<uintptr_t>(scn) + colOff);
-      if (IsValidReadablePtr(colHolder)) {
-        colHolder[0] = r;
-        colHolder[1] = g;
-        colHolder[2] = b;
-        colHolder[3] = a;
-        *reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(colHolder) +
-                                     0x10) = 1;
-      }
-      auto *tessOff =
-          reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
-      tessOff[0] = 0.0f;
-      tessOff[1] = 0.0f;
-      tessOff[2] = 0.0f;
-      auto *tessScale =
-          reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
-      tessScale[0] = 1.0f;
-      tessScale[1] = 1.0f;
-      tessScale[2] = 1.0f;
+  float zCam = dx * fwd.x + dy * fwd.y + dz * fwd.z;
+  if (zCam < 0.05f)
+    return false;
 
-      g_TessBegin(tess, 0, 1, modeVerts, false);
-      g_TessColor(tess, r, g, b, a);
-      emitFn();
-      uint8_t emptyTexVariant[48] = {};
-      g_RenderMeshImm(scn, tess, mat, emptyTexVariant);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-    }
-  };
+  float xCam = dx * rx + dy * ry + dz * rz;
+  float yCam = dx * ux + dy * uy + dz * uz;
 
-  drawColoredGroup(0.07f, 0.10f, 0.18f, bgA, 8, [&]() {
-    emitPanel(-hs, -hs, hs, hs, 0.0f);
-  });
+  const float fovY = 70.0f * (3.14159265f / 180.0f);
+  float tanHalfFovY = std::tan(fovY * 0.5f);
+  float tanHalfFovX = tanHalfFovY * (screenW / screenH);
 
-  float bt = hs * 0.12f;
-  float u = hs * 0.25f;
-  drawColoredGroup(brdR, brdG, brdB, fgA, 64, [&]() {
-    for (float off : {-0.025f, 0.025f}) {
-      emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, off);
-      emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, off);
-      emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, off);
-      emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, off);
-    }
-  });
+  float ndcX = xCam / (zCam * tanHalfFovX);
+  float ndcY = yCam / (zCam * tanHalfFovY);
 
-  int numVerts = (num == 1) ? 48 : 80;
-  drawColoredGroup(fgR, fgG, fgB, fgA, numVerts, [&]() {
-    for (float off : {-0.05f, 0.05f}) {
-      if (num == 1) {
-        emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, off);
-        emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, off);
-        emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, off);
-      } else {
-        emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, off);
-        emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, off);
-        emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, off);
-        emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, off);
-        emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, off);
-      }
-    }
-  });
+  if (ndcX < -1.35f || ndcX > 1.35f || ndcY < -1.35f || ndcY > 1.35f)
+    return false;
+
+  outX = (ndcX + 1.0f) * 0.5f * screenW;
+  outY = (1.0f - ndcY) * 0.5f * screenH;
+  return true;
 }
 
 }

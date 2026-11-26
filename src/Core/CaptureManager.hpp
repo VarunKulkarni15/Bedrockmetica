@@ -14,6 +14,15 @@ enum class CapturePhase {
   BoxLockedReadyToSave
 };
 
+struct CornerMarkerInfo {
+  bool valid = false;
+  int num = 0;
+  float wx = 0.0f;
+  float wy = 0.0f;
+  float wz = 0.0f;
+  int64_t setMs = 0;
+};
+
 void SetActive(bool active);
 bool IsActive();
 void ResetCapture();
@@ -25,6 +34,7 @@ int32_t GetBoxWidth();
 int32_t GetBoxHeight();
 int32_t GetBoxDepth();
 int32_t GetCapturedBlockCount();
+void GetCornerMarkers(CornerMarkerInfo &outPos1, CornerMarkerInfo &outPos2);
 
 bool HandleBareHandRightClick();
 void TickWorldUpdate();

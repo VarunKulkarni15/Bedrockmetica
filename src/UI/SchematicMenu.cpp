@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -1997,7 +1998,119 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   ImGui::End();
 }
 
-} // namespace
+void DrawHiveShieldCrestWaypoint(
+    ImDrawList *draw, ImFont *fontDisplay, float screenW, float screenH,
+    const Bedrockmetica::CaptureManager::CornerMarkerInfo &m, int64_t nowMs) {
+  if (!draw || !fontDisplay || !m.valid)
+    return;
+
+  float sx = 0.0f, sy = 0.0f, dist = 0.0f;
+  if (!BedrockGame::WorldToScreen(m.wx, m.wy, m.wz, screenW, screenH, sx, sy,
+                                  dist))
+    return;
+
+  float elapsed = static_cast<float>(std::max<int64_t>(0, nowMs - m.setMs));
+  float t = std::clamp(elapsed / 280.0f, 0.0f, 1.0f);
+  const float c1 = 1.70158f;
+  const float c3 = c1 + 1.0f;
+  float tm1 = t - 1.0f;
+  float easeBack = 1.0f + c3 * tm1 * tm1 * tm1 + c1 * tm1 * tm1;
+  float animScale = std::clamp(0.22f + 0.78f * easeBack, 0.22f, 1.12f);
+  float fadeAlpha = std::clamp(elapsed / 140.0f, 0.0f, 1.0f);
+  int a = static_cast<int>(255.0f * fadeAlpha);
+  if (a <= 2)
+    return;
+
+  float distScale = std::clamp(1.12f - dist * 0.008f, 0.75f, 1.12f);
+  float s = distScale * animScale * g_UiScale;
+
+  float w = std::round(64.0f * s);
+  float h = std::round(72.0f * s);
+  float ch = std::round(7.0f * s);
+  float bw = std::max(2.0f, std::round(3.0f * s));
+
+  float x0 = std::round(sx - w * 0.5f);
+  float x1 = x0 + w;
+  float y1 = std::round(sy - 4.0f);
+  float y0 = y1 - h;
+  float ySideBot = std::round(y0 + h * 0.72f);
+
+  bool isPos1 = (m.num == 1);
+  ImU32 borderCol = isPos1 ? IM_COL32(11, 51, 98, a) : IM_COL32(108, 63, 4, a);
+  ImU32 topCol = isPos1 ? IM_COL32(62, 166, 249, a) : IM_COL32(252, 194, 52, a);
+  ImU32 botCol = isPos1 ? IM_COL32(29, 132, 224, a) : IM_COL32(234, 156, 22, a);
+  ImU32 hiCol = isPos1 ? IM_COL32(160, 220, 255, a) : IM_COL32(255, 236, 155, a);
+  ImU32 insetCol = isPos1 ? IM_COL32(17, 82, 152, a) : IM_COL32(166, 102, 12, a);
+
+  ImVec2 ptsOut[7] = {
+      ImVec2(x0 + ch, y0),      ImVec2(x1 - ch, y0),
+      ImVec2(x1, y0 + ch),      ImVec2(x1, ySideBot),
+      ImVec2(sx, y1),           ImVec2(x0, ySideBot),
+      ImVec2(x0, y0 + ch),
+  };
+  draw->AddConvexPolyFilled(ptsOut, 7, borderCol);
+
+  float ix0 = x0 + bw;
+  float ix1 = x1 - bw;
+  float iy0 = y0 + bw;
+  float iy1 = y1 - bw * 1.35f;
+  float iySideBot = ySideBot - bw * 0.35f;
+  float ich = std::max(2.0f, ch - bw * 0.5f);
+
+  ImVec2 ptsIn[7] = {
+      ImVec2(ix0 + ich, iy0),    ImVec2(ix1 - ich, iy0),
+      ImVec2(ix1, iy0 + ich),    ImVec2(ix1, iySideBot),
+      ImVec2(sx, iy1),           ImVec2(ix0, iySideBot),
+      ImVec2(ix0, iy0 + ich),
+  };
+  draw->AddConvexPolyFilled(ptsIn, 7, botCol);
+
+  float iyMid = std::min(iySideBot, std::round((iy0 + iy1) * 0.52f));
+  ImVec2 ptsTop[6] = {
+      ImVec2(ix0 + ich, iy0), ImVec2(ix1 - ich, iy0),
+      ImVec2(ix1, iy0 + ich), ImVec2(ix1, iyMid),
+      ImVec2(ix0, iyMid),     ImVec2(ix0, iy0 + ich),
+  };
+  draw->AddConvexPolyFilled(ptsTop, 6, topCol);
+
+  draw->AddRectFilled(ImVec2(ix0 + ich, iy0),
+                      ImVec2(ix1 - ich, iy0 + std::max(2.0f, 2.5f * s)), hiCol);
+
+  float tagW = std::round(44.0f * s);
+  float tagH = std::round(15.0f * s);
+  float tagX0 = std::round(sx - tagW * 0.5f);
+  float tagY0 = std::round(iy0 + 6.0f * s);
+  draw->AddRectFilled(ImVec2(tagX0, tagY0), ImVec2(tagX0 + tagW, tagY0 + tagH),
+                      insetCol);
+  draw->AddRect(ImVec2(tagX0, tagY0), ImVec2(tagX0 + tagW, tagY0 + tagH),
+                borderCol, 0.0f, 0, std::max(1.0f, 1.5f * s));
+
+  const char *tagStr = isPos1 ? "POS 1" : "POS 2";
+  float tagFontSz = std::max(9.0f, 10.5f * s);
+  ImVec2 tagSz = fontDisplay->CalcTextSizeA(tagFontSz, FLT_MAX, 0.0f, tagStr);
+  ImVec2 tagPos(std::round(sx - tagSz.x * 0.5f),
+                std::round(tagY0 + (tagH - tagSz.y) * 0.5f));
+  draw->AddText(fontDisplay, tagFontSz,
+                ImVec2(tagPos.x + 1.0f, tagPos.y + 1.0f), borderCol, tagStr);
+  draw->AddText(fontDisplay, tagFontSz, tagPos, IM_COL32(255, 255, 255, a),
+                tagStr);
+
+  const char *numStr = isPos1 ? "1" : "2";
+  float numFontSz = std::max(18.0f, 29.0f * s);
+  ImVec2 numSz = fontDisplay->CalcTextSizeA(numFontSz, FLT_MAX, 0.0f, numStr);
+  float numAreaTop = tagY0 + tagH + 2.0f * s;
+  float numAreaBot = iySideBot;
+  ImVec2 numPos(
+      std::round(sx - numSz.x * 0.5f),
+      std::round((numAreaTop + numAreaBot) * 0.5f - numSz.y * 0.5f));
+  float shOff = std::max(1.5f, 2.2f * s);
+  draw->AddText(fontDisplay, numFontSz,
+                ImVec2(numPos.x + shOff, numPos.y + shOff), borderCol, numStr);
+  draw->AddText(fontDisplay, numFontSz, numPos, IM_COL32(255, 255, 255, a),
+                numStr);
+}
+
+}
 
 void Initialize() {
   ConfigManager::ConfigData cfg = ConfigManager::Load();
@@ -2082,6 +2195,17 @@ void Render(float screenWidth, float screenHeight, bool menuOpen) {
       (1.0f - std::exp(-24.0f * dt));
 
   if (g_OpenAnim <= 0.01f) {
+    Bedrockmetica::CaptureManager::CornerMarkerInfo m1{}, m2{};
+    Bedrockmetica::CaptureManager::GetCornerMarkers(m1, m2);
+    if (m1.valid || m2.valid) {
+      int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+      DrawHiveShieldCrestWaypoint(bgDraw, fontDisplay, screenWidth,
+                                  screenHeight, m1, nowMs);
+      DrawHiveShieldCrestWaypoint(bgDraw, fontDisplay, screenWidth,
+                                  screenHeight, m2, nowMs);
+    }
     DrawCollapsedCornerHud(bgDraw, screenWidth, screenHeight, fontDisplay,
                            fontBold, fontReg);
     return;

@@ -322,6 +322,31 @@ int32_t GetBoxHeight() { return g_StagedDoc.height; }
 int32_t GetBoxDepth() { return g_StagedDoc.depth; }
 int32_t GetCapturedBlockCount() { return g_StagedDoc.totalNonAirBlocks; }
 
+void GetCornerMarkers(CornerMarkerInfo &outPos1, CornerMarkerInfo &outPos2) {
+  outPos1 = {};
+  outPos2 = {};
+  std::lock_guard<std::mutex> lock(g_CapMutex);
+  if (!g_CaptureActive)
+    return;
+  if (g_Phase == CapturePhase::HasPos1NeedsPos2 ||
+      g_Phase == CapturePhase::BoxLockedReadyToSave) {
+    outPos1.valid = true;
+    outPos1.num = 1;
+    outPos1.wx = static_cast<float>(g_Pos1.x) + 0.5f;
+    outPos1.wy = static_cast<float>(g_Pos1.y) + 1.15f;
+    outPos1.wz = static_cast<float>(g_Pos1.z) + 0.5f;
+    outPos1.setMs = g_Pos1SetMs;
+  }
+  if (g_Phase == CapturePhase::BoxLockedReadyToSave) {
+    outPos2.valid = true;
+    outPos2.num = 2;
+    outPos2.wx = static_cast<float>(g_Pos2.x) + 0.5f;
+    outPos2.wy = static_cast<float>(g_Pos2.y) + 1.15f;
+    outPos2.wz = static_cast<float>(g_Pos2.z) + 0.5f;
+    outPos2.setMs = g_Pos2SetMs;
+  }
+}
+
 bool HandleBareHandRightClick() {
   BedrockGame::HitInfo hit;
   if (!BedrockGame::GetAimedHit(hit) || !hit.isBlockHit())
@@ -371,6 +396,7 @@ bool HandleBareHandRightClick() {
 }
 
 void TickWorldUpdate() {
+  BedrockGame::UpdateCameraForward();
   void *bs = BedrockGame::GetBlockSource();
   if (!bs)
     return;
@@ -436,35 +462,6 @@ void DrawDualOutlineBox3D(float minX, float minY, float minZ, float maxX,
                               innerThick * 1.25f, 1.0f, 1.0f, 1.0f, 0.98f);
 }
 
-void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
-                           int64_t nowMs, float pulse) {
-  float elapsed = static_cast<float>(std::max<int64_t>(0, nowMs - setMs));
-  float t = std::clamp(elapsed / 320.0f, 0.0f, 1.0f);
-  const float c1 = 1.70158f;
-  const float c3 = c1 + 1.0f;
-  float tm1 = t - 1.0f;
-  float easeBack = 1.0f + c3 * tm1 * tm1 * tm1 + c1 * tm1 * tm1;
-  float scale = std::clamp(0.18f + 0.82f * easeBack, 0.18f, 1.12f);
-  float alphaFade = std::clamp(elapsed / 160.0f, 0.0f, 1.0f);
-  float rise = 0.28f + 0.36f * std::clamp(easeBack, 0.0f, 1.06f);
-  float bob =
-      (t >= 1.0f) ? (0.04f * std::sin(static_cast<float>(nowMs) * 0.0034f))
-                  : 0.0f;
-
-  float cx = bx + 0.5f;
-  float cy = by + 1.0f + rise + bob;
-  float cz = bz + 0.5f;
-  float half = 0.36f * scale;
-
-  float br = (num == 1) ? 0.24f : 0.28f;
-  float bgCol = (num == 1) ? 0.85f : 0.95f;
-  float bb = (num == 1) ? 1.0f : 0.62f;
-
-  BedrockGame::DrawBillboardBadge3D(cx, cy, cz, half, num, 0.88f * alphaFade,
-                                    br, bgCol, bb, 1.0f, 0.86f, 0.26f,
-                                    (0.92f + 0.08f * pulse) * alphaFade);
-}
-
 void RenderWorldVisuals() {
   if (!BedrockGame::IsRenderReady())
     return;
@@ -504,7 +501,6 @@ void RenderWorldVisuals() {
     DrawDualOutlineBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
                          p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 0.036f,
                          0.016f, 1.0f, 0.82f, 0.25f, 0.62f);
-    DrawHiveCornerBadge3D(p1x, p1y, p1z, 1, g_Pos1SetMs, nowMs, pulse);
 
     BedrockGame::HitInfo hit;
     if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {
@@ -522,15 +518,6 @@ void RenderWorldVisuals() {
   }
 
   if (g_Phase == CapturePhase::BoxLockedReadyToSave) {
-    float p1x = static_cast<float>(g_Pos1.x);
-    float p1y = static_cast<float>(g_Pos1.y);
-    float p1z = static_cast<float>(g_Pos1.z);
-    float p2x = static_cast<float>(g_Pos2.x);
-    float p2y = static_cast<float>(g_Pos2.y);
-    float p2z = static_cast<float>(g_Pos2.z);
-    DrawHiveCornerBadge3D(p1x, p1y, p1z, 1, g_Pos1SetMs, nowMs, pulse);
-    DrawHiveCornerBadge3D(p2x, p2y, p2z, 2, g_Pos2SetMs, nowMs, pulse);
-
     float bx0 = static_cast<float>(g_MinB.x);
     float by0 = static_cast<float>(g_MinB.y);
     float bz0 = static_cast<float>(g_MinB.z);
