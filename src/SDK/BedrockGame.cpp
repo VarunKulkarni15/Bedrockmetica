@@ -650,4 +650,87 @@ void DrawFilledBox3D(float minX, float minY, float minZ, float maxX, float maxY,
   }
 }
 
+void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
+                    float maxZ, float thickness, float r, float g, float b,
+                    float a) {
+  if (!IsRenderReady())
+    return;
+  void *scn = GetScreenContext();
+  void *tess = GetTessellator();
+  void *mat = GetSelectionOverlayMaterial();
+  if (!scn || !tess || !mat)
+    return;
+
+  Vec3f origin = GetCameraOrigin();
+  float x0 = minX - origin.x, y0 = minY - origin.y, z0 = minZ - origin.z;
+  float x1 = maxX - origin.x, y1 = maxY - origin.y, z1 = maxZ - origin.z;
+  float t = thickness * 0.5f;
+
+  auto emitCuboid = [&](float ax0, float ay0, float az0, float ax1, float ay1,
+                        float az1) {
+    EmitQuadFace(tess, ax0, ay0, az0, ax1, ay0, az0, ax1, ay0, az1, ax0, ay0,
+                 az1);
+    EmitQuadFace(tess, ax0, ay1, az1, ax1, ay1, az1, ax1, ay1, az0, ax0, ay1,
+                 az0);
+    EmitQuadFace(tess, ax0, ay0, az0, ax0, ay1, az0, ax1, ay1, az0, ax1, ay0,
+                 az0);
+    EmitQuadFace(tess, ax1, ay0, az1, ax1, ay1, az1, ax0, ay1, az1, ax0, ay0,
+                 az1);
+    EmitQuadFace(tess, ax0, ay0, az1, ax0, ay1, az1, ax0, ay1, az0, ax0, ay0,
+                 az0);
+    EmitQuadFace(tess, ax1, ay0, az0, ax1, ay1, az0, ax1, ay1, az1, ax1, ay0,
+                 az1);
+  };
+
+  __try {
+    uintptr_t colOff =
+        static_cast<uintptr_t>(GET_OFFSET("ScreenContext::colorHolder"));
+    if (colOff == 0)
+      colOff = 0x30;
+    auto *colHolder = *reinterpret_cast<float **>(
+        reinterpret_cast<uintptr_t>(scn) + colOff);
+    if (IsValidReadablePtr(colHolder)) {
+      colHolder[0] = r;
+      colHolder[1] = g;
+      colHolder[2] = b;
+      colHolder[3] = a;
+      *reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(colHolder) +
+                                   0x10) = 1;
+    }
+
+    auto *tessOff =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
+    tessOff[0] = 0.0f;
+    tessOff[1] = 0.0f;
+    tessOff[2] = 0.0f;
+    auto *tessScale =
+        reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
+    tessScale[0] = 1.0f;
+    tessScale[1] = 1.0f;
+    tessScale[2] = 1.0f;
+
+    g_TessBegin(tess, 0, 1, 288, false);
+    g_TessColor(tess, r, g, b, a);
+
+    emitCuboid(x0 - t, y0 - t, z0 - t, x1 + t, y0 + t, z0 + t);
+    emitCuboid(x0 - t, y0 - t, z1 - t, x1 + t, y0 + t, z1 + t);
+    emitCuboid(x0 - t, y1 - t, z0 - t, x1 + t, y1 + t, z0 + t);
+    emitCuboid(x0 - t, y1 - t, z1 - t, x1 + t, y1 + t, z1 + t);
+
+    emitCuboid(x0 - t, y0 - t, z0 - t, x0 + t, y0 + t, z1 + t);
+    emitCuboid(x1 - t, y0 - t, z0 - t, x1 + t, y0 + t, z1 + t);
+    emitCuboid(x0 - t, y1 - t, z0 - t, x0 + t, y1 + t, z1 + t);
+    emitCuboid(x1 - t, y1 - t, z0 - t, x1 + t, y1 + t, z1 + t);
+
+    emitCuboid(x0 - t, y0 - t, z0 - t, x0 + t, y1 + t, z0 + t);
+    emitCuboid(x1 - t, y0 - t, z0 - t, x1 + t, y1 + t, z0 + t);
+    emitCuboid(x0 - t, y0 - t, z1 - t, x0 + t, y1 + t, z1 + t);
+    emitCuboid(x1 - t, y0 - t, z1 - t, x1 + t, y1 + t, z1 + t);
+
+    uint8_t emptyTexVariant[48] = {};
+    g_RenderMeshImm(scn, tess, mat, emptyTexVariant);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+}
+
 }

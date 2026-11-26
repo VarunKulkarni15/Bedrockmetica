@@ -53,5 +53,8 @@ void DrawWireBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                    float maxZ, float r, float g, float b, float a);
 void DrawFilledBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                      float maxZ, float r, float g, float b, float a);
+void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
+                    float maxZ, float thickness, float r, float g, float b,
+                    float a);
 
 }

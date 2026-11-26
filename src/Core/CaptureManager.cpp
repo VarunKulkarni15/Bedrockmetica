@@ -37,6 +37,8 @@ static BedrockGame::BlockPos3i g_Pos1{};
 static BedrockGame::BlockPos3i g_Pos2{};
 static BedrockGame::BlockPos3i g_MinB{};
 static BedrockGame::BlockPos3i g_MaxB{};
+static int64_t g_Pos1SetMs = 0;
+static int64_t g_Pos2SetMs = 0;
 
 static SchematicDocument g_StagedDoc;
 static std::unordered_set<uint64_t> g_CapturedCols;
@@ -273,8 +275,12 @@ void SetActive(bool active) {
   g_CaptureActive = active;
   if (active && g_Phase == CapturePhase::Idle) {
     g_Phase = CapturePhase::ArmedNeedsPos1;
-  } else if (!active && g_Phase != CapturePhase::BoxLockedReadyToSave) {
+  } else if (!active) {
     g_Phase = CapturePhase::Idle;
+    g_CapturedCols.clear();
+    g_PendingCols.clear();
+    g_TotalCols = 0;
+    g_StagedDoc.Reset();
     ClearScratch();
   }
 }
@@ -328,6 +334,9 @@ bool HandleBareHandRightClick() {
   if (g_Phase == CapturePhase::Idle || g_Phase == CapturePhase::ArmedNeedsPos1 ||
       g_Phase == CapturePhase::BoxLockedReadyToSave) {
     g_Pos1 = hit.blockPos;
+    g_Pos1SetMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count();
     g_Phase = CapturePhase::HasPos1NeedsPos2;
     g_CapturedCols.clear();
     g_PendingCols.clear();
@@ -349,6 +358,9 @@ bool HandleBareHandRightClick() {
 
   if (g_Phase == CapturePhase::HasPos1NeedsPos2) {
     g_Pos2 = hit.blockPos;
+    g_Pos2SetMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count();
     void *bs = BedrockGame::GetBlockSource();
     SoundManager::Play(UISound::Success);
     FinalizeBoxFromPos1Pos2(bs);
@@ -412,12 +424,77 @@ void TickWorldUpdate() {
   }
 }
 
+void DrawDualOutlineBox3D(float minX, float minY, float minZ, float maxX,
+                          float maxY, float maxZ, float outerThick,
+                          float innerThick, float r, float g, float b,
+                          float outerAlpha) {
+  BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ, outerThick, r,
+                              g, b, outerAlpha);
+  BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ, innerThick,
+                              1.0f, 1.0f, 1.0f, 0.96f);
+}
+
+void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
+                           int64_t nowMs, float pulse) {
+  float elapsed = static_cast<float>(std::max<int64_t>(0, nowMs - setMs));
+  float t = std::clamp(elapsed / 320.0f, 0.0f, 1.0f);
+  const float c1 = 1.70158f;
+  const float c3 = c1 + 1.0f;
+  float tm1 = t - 1.0f;
+  float easeBack = 1.0f + c3 * tm1 * tm1 * tm1 + c1 * tm1 * tm1;
+  float scale = std::clamp(0.18f + 0.82f * easeBack, 0.18f, 1.12f);
+  float alphaFade = std::clamp(elapsed / 160.0f, 0.0f, 1.0f);
+  float rise = 0.22f + 0.28f * std::clamp(easeBack, 0.0f, 1.06f);
+  float bob =
+      (t >= 1.0f) ? (0.032f * std::sin(static_cast<float>(nowMs) * 0.0034f))
+                  : 0.0f;
+
+  float cx = bx + 0.5f;
+  float cy = by + 1.0f + rise + bob;
+  float cz = bz + 0.5f;
+  float half = 0.24f * scale;
+  float depth = 0.07f * scale;
+
+  BedrockGame::DrawFilledBox3D(cx - half, cy - half, cz - depth, cx + half,
+                               cy + half, cz + depth, 0.06f, 0.08f, 0.14f,
+                               0.90f * alphaFade);
+  BedrockGame::DrawThickBox3D(cx - half, cy - half, cz - depth, cx + half,
+                              cy + half, cz + depth, 0.022f * scale, 1.0f,
+                              0.82f, 0.25f, 0.96f * alphaFade);
+
+  float u = 0.055f * scale;
+  float gz0 = cz - depth - 0.008f * scale;
+  float gz1 = cz + depth + 0.008f * scale;
+  float r = 1.0f, g = 0.84f, b = 0.26f;
+  float a = (0.88f + 0.12f * pulse) * alphaFade;
+
+  if (num == 1) {
+    BedrockGame::DrawFilledBox3D(cx - 0.5f * u, cy - 2.2f * u, gz0,
+                                 cx + 0.5f * u, cy + 2.2f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx - 1.5f * u, cy + 1.2f * u, gz0,
+                                 cx - 0.5f * u, cy + 2.0f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx - 1.5f * u, cy - 2.2f * u, gz0,
+                                 cx + 1.5f * u, cy - 1.4f * u, gz1, r, g, b, a);
+  } else {
+    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy + 1.4f * u, gz0,
+                                 cx + 1.6f * u, cy + 2.2f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx + 0.6f * u, cy + 0.0f * u, gz0,
+                                 cx + 1.6f * u, cy + 1.4f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 0.4f * u, gz0,
+                                 cx + 1.6f * u, cy + 0.4f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 1.4f * u, gz0,
+                                 cx - 0.6f * u, cy - 0.4f * u, gz1, r, g, b, a);
+    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 2.2f * u, gz0,
+                                 cx + 1.6f * u, cy - 1.4f * u, gz1, r, g, b, a);
+  }
+}
+
 void RenderWorldVisuals() {
   if (!BedrockGame::IsRenderReady())
     return;
 
   std::lock_guard<std::mutex> lock(g_CapMutex);
-  if (!g_CaptureActive && g_Phase != CapturePhase::BoxLockedReadyToSave)
+  if (!g_CaptureActive)
     return;
 
   auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -431,12 +508,12 @@ void RenderWorldVisuals() {
       float x = static_cast<float>(hit.blockPos.x);
       float y = static_cast<float>(hit.blockPos.y);
       float z = static_cast<float>(hit.blockPos.z);
-      BedrockGame::DrawFilledBox3D(x - 0.005f, y - 0.005f, z - 0.005f,
-                                   x + 1.005f, y + 1.005f, z + 1.005f, 0.25f,
-                                   0.85f, 1.0f, 0.22f * pulse);
-      BedrockGame::DrawWireBox3D(x - 0.006f, y - 0.006f, z - 0.006f,
-                                 x + 1.006f, y + 1.006f, z + 1.006f, 0.35f,
-                                 0.92f, 1.0f, 0.9f);
+      BedrockGame::DrawFilledBox3D(x - 0.004f, y - 0.004f, z - 0.004f,
+                                   x + 1.004f, y + 1.004f, z + 1.004f, 0.22f,
+                                   0.85f, 1.0f, 0.16f * pulse);
+      DrawDualOutlineBox3D(x - 0.006f, y - 0.006f, z - 0.006f, x + 1.006f,
+                           y + 1.006f, z + 1.006f, 0.034f, 0.015f, 0.22f, 0.88f,
+                           1.0f, 0.55f);
     }
     return;
   }
@@ -447,13 +524,11 @@ void RenderWorldVisuals() {
     float p1z = static_cast<float>(g_Pos1.z);
     BedrockGame::DrawFilledBox3D(p1x - 0.005f, p1y - 0.005f, p1z - 0.005f,
                                  p1x + 1.005f, p1y + 1.005f, p1z + 1.005f, 0.20f,
-                                 0.76f, 1.0f, 0.32f * pulse);
-    BedrockGame::DrawWireBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
-                               p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 0.35f,
-                               0.92f, 1.0f, 0.98f);
-    BedrockGame::DrawWireBox3D(p1x - 0.06f, p1y - 0.06f, p1z - 0.06f,
-                               p1x + 1.06f, p1y + 1.06f, p1z + 1.06f, 0.25f,
-                               0.80f, 1.0f, 0.55f * pulse);
+                                 0.76f, 1.0f, 0.22f * pulse);
+    DrawDualOutlineBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
+                         p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 0.036f,
+                         0.016f, 1.0f, 0.82f, 0.25f, 0.62f);
+    DrawHiveCornerBadge3D(p1x, p1y, p1z, 1, g_Pos1SetMs, nowMs, pulse);
 
     BedrockGame::HitInfo hit;
     if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {
@@ -463,23 +538,36 @@ void RenderWorldVisuals() {
       float bx1 = static_cast<float>(std::max(g_Pos1.x, hit.blockPos.x) + 1);
       float by1 = static_cast<float>(std::max(g_Pos1.y, hit.blockPos.y) + 1);
       float bz1 = static_cast<float>(std::max(g_Pos1.z, hit.blockPos.z) + 1);
-      BedrockGame::DrawWireBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f,
-                                 bx1 + 0.01f, by1 + 0.01f, bz1 + 0.01f, 0.30f,
-                                 0.88f, 1.0f, 0.95f);
+      BedrockGame::DrawFilledBox3D(bx0, by0, bz0, bx1, by1, bz1, 0.22f, 0.86f,
+                                   1.0f, 0.09f);
+      DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
+                           by1 + 0.01f, bz1 + 0.01f, 0.042f, 0.018f, 0.25f,
+                           0.88f, 1.0f, 0.52f);
     }
     return;
   }
 
   if (g_Phase == CapturePhase::BoxLockedReadyToSave) {
+    float p1x = static_cast<float>(g_Pos1.x);
+    float p1y = static_cast<float>(g_Pos1.y);
+    float p1z = static_cast<float>(g_Pos1.z);
+    float p2x = static_cast<float>(g_Pos2.x);
+    float p2y = static_cast<float>(g_Pos2.y);
+    float p2z = static_cast<float>(g_Pos2.z);
+    DrawHiveCornerBadge3D(p1x, p1y, p1z, 1, g_Pos1SetMs, nowMs, pulse);
+    DrawHiveCornerBadge3D(p2x, p2y, p2z, 2, g_Pos2SetMs, nowMs, pulse);
+
     float bx0 = static_cast<float>(g_MinB.x);
     float by0 = static_cast<float>(g_MinB.y);
     float bz0 = static_cast<float>(g_MinB.z);
     float bx1 = static_cast<float>(g_MaxB.x + 1);
     float by1 = static_cast<float>(g_MaxB.y + 1);
     float bz1 = static_cast<float>(g_MaxB.z + 1);
-    BedrockGame::DrawWireBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f,
-                               bx1 + 0.01f, by1 + 0.01f, bz1 + 0.01f, 0.35f,
-                               0.95f, 0.62f, 0.95f);
+    BedrockGame::DrawFilledBox3D(bx0, by0, bz0, bx1, by1, bz1, 0.25f, 0.92f,
+                                 0.65f, 0.09f);
+    DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
+                         by1 + 0.01f, bz1 + 0.01f, 0.044f, 0.018f, 0.28f, 0.95f,
+                         0.64f, 0.56f);
 
     for (uint64_t key : g_PendingCols) {
       int32_t cx = 0, cz = 0;
@@ -488,8 +576,8 @@ void RenderWorldVisuals() {
       float cx1 = static_cast<float>(std::min(g_MaxB.x, (cx << 4) + 15) + 1);
       float cz0 = static_cast<float>(std::max(g_MinB.z, cz << 4));
       float cz1 = static_cast<float>(std::min(g_MaxB.z, (cz << 4) + 15) + 1);
-      BedrockGame::DrawWireBox3D(cx0, by0, cz0, cx1, by1, cz1, 1.0f, 0.68f,
-                                 0.18f, 0.85f * pulse);
+      DrawDualOutlineBox3D(cx0, by0, cz0, cx1, by1, cz1, 0.038f, 0.015f, 1.0f,
+                           0.68f, 0.18f, 0.55f * pulse);
     }
   }
 }
