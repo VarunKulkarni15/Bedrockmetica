@@ -771,6 +771,19 @@ void BuildCpuAtlasOnce() {
       break;
     AllocAtlasTile(ex.path, ex.tintRgb, ex.hasTint);
   }
+  for (const auto &arc : g_Archives) {
+    for (const auto &ekv : arc.entries) {
+      if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
+        break;
+      std::string fname = ekv.second.name;
+      auto dot = fname.find_last_of('.');
+      if (dot != std::string::npos)
+        fname = fname.substr(0, dot);
+      bool tint = (fname == "grass_top") ||
+                  (fname.find("leaves") != std::string::npos);
+      AllocAtlasTile(fname, tint ? 0x79C05A : 0, tint);
+    }
+  }
 
   Logger::info("BlockTextureRegistry built atlas (" +
                    std::to_string(g_NextSlot) + " tiles loaded)",

@@ -363,11 +363,6 @@ void DrawIsometricGridPlaceholder(ImDrawList *draw, ImVec2 vpPos, ImVec2 vpSize,
   if (PreviewRenderer::HasMesh()) {
     PreviewRenderer::RenderViewport(draw, vpPos, vpSize, g_PreviewYaw,
                                     g_PreviewPitch, g_PreviewZoom, alpha);
-    UiDraw::DrawTextLeftEllipsis(
-        draw, fontReg, 13.0f, vpPos.x + 16.0f, vpPos.y + vpSize.y - 18.0f,
-        vpSize.x - 32.0f, "Drag to Orbit  |  Scroll to Zoom",
-        IM_COL32(178, 198, 228, static_cast<int>(210 * alpha)),
-        IM_COL32(8, 10, 16, static_cast<int>(220 * alpha)), 1.0f);
   } else if (sel) {
     char infoBuf[96];
     snprintf(infoBuf, sizeof(infoBuf), "3D Stage Ready  (%d x %d x %d)", sel->w,

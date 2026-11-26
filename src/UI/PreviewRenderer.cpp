@@ -43,9 +43,9 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
 
   int64_t vol = static_cast<int64_t>(doc.width) * doc.height * doc.depth;
   int step = 1;
-  if (vol > 250000)
+  if (vol > 2000000)
     step = 3;
-  else if (vol > 45000)
+  else if (vol > 500000)
     step = 2;
 
   float halfW = static_cast<float>(doc.width) * 0.5f;
@@ -140,13 +140,13 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
                   -1.0f, 0.0f, 0.0f, 0.66f, faces.west);
         }
 
-        if (g_Quads.size() >= 18000)
+        if (g_Quads.size() >= 120000)
           break;
       }
-      if (g_Quads.size() >= 18000)
+      if (g_Quads.size() >= 120000)
         break;
     }
-    if (g_Quads.size() >= 18000)
+    if (g_Quads.size() >= 120000)
       break;
   }
   g_HasMesh = !g_Quads.empty();

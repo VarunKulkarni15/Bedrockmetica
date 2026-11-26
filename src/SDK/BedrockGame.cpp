@@ -1,9 +1,12 @@
 #include "BedrockGame.hpp"
 #include "../Utils/Logger.hpp"
 #include "../Utils/SignatureAndOffsetManager.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <windows.h>
 
@@ -32,6 +35,50 @@ static void *g_BlockSource = nullptr;
 static void *g_ScreenContext = nullptr;
 static Vec3f g_CameraOrigin{};
 static Vec3f g_CameraForward{0.0f, 0.0f, -1.0f};
+static float g_FovDeg = 70.0f;
+
+static void LoadFovFromOptions() {
+  char appData[MAX_PATH] = {};
+  if (GetEnvironmentVariableA("APPDATA", appData, MAX_PATH) == 0)
+    return;
+  std::filesystem::path usersDir =
+      std::filesystem::path(appData) / "Minecraft Bedrock" / "Users";
+  std::error_code ec;
+  if (!std::filesystem::exists(usersDir, ec))
+    return;
+  std::filesystem::file_time_type bestTime{};
+  bool found = false;
+  float bestFov = 70.0f;
+  for (const auto &entry : std::filesystem::directory_iterator(usersDir, ec)) {
+    if (!entry.is_directory(ec))
+      continue;
+    if (entry.path().filename() == "Shared")
+      continue;
+    std::filesystem::path opt =
+        entry.path() / "games" / "com.mojang" / "minecraftpe" / "options.txt";
+    if (!std::filesystem::exists(opt, ec))
+      continue;
+    auto ft = std::filesystem::last_write_time(opt, ec);
+    if (!found || ft > bestTime) {
+      std::ifstream f(opt);
+      std::string line;
+      while (std::getline(f, line)) {
+        if (line.rfind("gfx_field_of_view:", 0) == 0) {
+          float v = std::strtof(line.c_str() + 18, nullptr);
+          if (v >= 30.0f && v <= 110.0f) {
+            bestFov = v;
+            bestTime = ft;
+            found = true;
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (found) {
+    g_FovDeg = bestFov;
+  }
+}
 
 static bool IsValidReadablePtr(const void *p) {
   uintptr_t v = reinterpret_cast<uintptr_t>(p);
@@ -260,6 +307,7 @@ void EmitLine(void *tess, float x0, float y0, float z0, float x1, float y1,
 }
 
 void Initialize() {
+  LoadFovFromOptions();
   g_TessBegin =
       reinterpret_cast<TessBeginFn>(GET_SIG_ADDRESS("Tessellator::begin"));
   g_TessColor =
@@ -820,7 +868,7 @@ bool WorldToScreen(float wx, float wy, float wz, float screenW, float screenH,
   float xCam = dx * rx + dy * ry + dz * rz;
   float yCam = dx * ux + dy * uy + dz * uz;
 
-  const float fovY = 70.0f * (3.14159265f / 180.0f);
+  const float fovY = g_FovDeg * (3.14159265f / 180.0f);
   float tanHalfFovY = std::tan(fovY * 0.5f);
   float tanHalfFovX = tanHalfFovY * (screenW / screenH);
 
@@ -897,7 +945,7 @@ bool ProjectLine3D(float x0, float y0, float z0, float x1, float y1, float z1,
     zc1 = nearZ;
   }
 
-  const float fovY = 70.0f * (3.14159265f / 180.0f);
+  const float fovY = g_FovDeg * (3.14159265f / 180.0f);
   float tanHalfFovY = std::tan(fovY * 0.5f);
   float tanHalfFovX = tanHalfFovY * (screenW / screenH);
 
