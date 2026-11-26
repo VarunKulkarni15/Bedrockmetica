@@ -808,31 +808,27 @@ void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
     }
   };
 
-  drawColoredGroup(0.06f, 0.08f, 0.14f, bgA, 8, [&]() {
-    emitPanel(-hs, -hs, hs, hs, 0.0f);
-  });
-
-  float bt = hs * 0.11f;
-  float u = hs * 0.24f;
+  float bt = hs * 0.12f;
+  float u = hs * 0.26f;
   drawColoredGroup(fgR, fgG, fgB, fgA, 32, [&]() {
-    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, -0.025f);
-    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, -0.025f);
-    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, -0.025f);
-    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, -0.025f);
+    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, 0.0f);
+    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, 0.0f);
+    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, 0.0f);
+    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, 0.0f);
   });
 
   int numVerts = (num == 1) ? 24 : 40;
   drawColoredGroup(fgR, fgG, fgB, fgA, numVerts, [&]() {
     if (num == 1) {
-      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, -0.055f);
-      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, -0.055f);
-      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, -0.055f);
+      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, 0.0f);
+      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, 0.0f);
+      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, 0.0f);
     } else {
-      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, -0.055f);
-      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, -0.055f);
-      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, -0.055f);
-      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, -0.055f);
-      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, -0.055f);
+      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, 0.0f);
+      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, 0.0f);
+      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, 0.0f);
+      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, 0.0f);
+      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, 0.0f);
     }
   });
 }

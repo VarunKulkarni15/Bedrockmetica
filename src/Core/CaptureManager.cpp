@@ -428,12 +428,12 @@ void DrawDualOutlineBox3D(float minX, float minY, float minZ, float maxX,
                           float maxY, float maxZ, float outerThick,
                           float innerThick, float r, float g, float b,
                           float outerAlpha) {
-  float gap = outerThick * 0.72f;
+  float gap = outerThick * 1.25f;
   BedrockGame::DrawThickBox3D(minX - gap, minY - gap, minZ - gap, maxX + gap,
-                              maxY + gap, maxZ + gap, outerThick * 0.48f, r, g,
+                              maxY + gap, maxZ + gap, outerThick * 0.55f, r, g,
                               b, outerAlpha);
-  BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ, innerThick,
-                              1.0f, 1.0f, 1.0f, 0.98f);
+  BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ,
+                              innerThick * 1.25f, 1.0f, 1.0f, 1.0f, 0.98f);
 }
 
 void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
