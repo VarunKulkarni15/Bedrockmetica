@@ -2525,11 +2525,6 @@ void Render(float screenWidth, float screenHeight, bool menuOpen) {
       (1.0f - std::exp(-24.0f * dt));
 
   if (g_OpenAnim <= 0.01f) {
-    std::vector<Bedrockmetica::CaptureManager::SelectionBoxVisual> boxes;
-    Bedrockmetica::CaptureManager::GetSelectionBoxes(boxes);
-    for (const auto &box : boxes) {
-      DrawSelectionBoxHud(bgDraw, screenWidth, screenHeight, box);
-    }
     Bedrockmetica::CaptureManager::CornerMarkerInfo m1{}, m2{};
     Bedrockmetica::CaptureManager::GetCornerMarkers(m1, m2);
     if (m1.valid || m2.valid) {

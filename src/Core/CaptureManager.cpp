@@ -534,6 +534,76 @@ void RenderWorldVisuals() {
   std::lock_guard<std::mutex> lock(g_CapMutex);
   if (!g_CaptureActive)
     return;
+
+  auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+                   .count();
+  float pulse = 0.55f + 0.35f * std::sin(static_cast<float>(nowMs) * 0.006f);
+
+  if (g_Phase == CapturePhase::ArmedNeedsPos1) {
+    BedrockGame::HitInfo hit;
+    if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {
+      float x = static_cast<float>(hit.blockPos.x);
+      float y = static_cast<float>(hit.blockPos.y);
+      float z = static_cast<float>(hit.blockPos.z);
+      BedrockGame::DrawFilledBox3D(x - 0.004f, y - 0.004f, z - 0.004f,
+                                   x + 1.004f, y + 1.004f, z + 1.004f, 0.22f,
+                                   0.85f, 1.0f, 0.16f * pulse);
+      DrawDualOutlineBox3D(x - 0.006f, y - 0.006f, z - 0.006f, x + 1.006f,
+                           y + 1.006f, z + 1.006f, 0.034f, 0.015f, 0.22f, 0.88f,
+                           1.0f, 0.55f);
+    }
+    return;
+  }
+
+  if (g_Phase == CapturePhase::HasPos1NeedsPos2) {
+    float p1x = static_cast<float>(g_Pos1.x);
+    float p1y = static_cast<float>(g_Pos1.y);
+    float p1z = static_cast<float>(g_Pos1.z);
+    BedrockGame::DrawFilledBox3D(p1x - 0.005f, p1y - 0.005f, p1z - 0.005f,
+                                 p1x + 1.005f, p1y + 1.005f, p1z + 1.005f, 0.20f,
+                                 0.76f, 1.0f, 0.22f * pulse);
+    DrawDualOutlineBox3D(p1x - 0.008f, p1y - 0.008f, p1z - 0.008f,
+                         p1x + 1.008f, p1y + 1.008f, p1z + 1.008f, 0.036f,
+                         0.016f, 1.0f, 0.82f, 0.25f, 0.62f);
+
+    BedrockGame::HitInfo hit;
+    if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {
+      float bx0 = static_cast<float>(std::min(g_Pos1.x, hit.blockPos.x));
+      float by0 = static_cast<float>(std::min(g_Pos1.y, hit.blockPos.y));
+      float bz0 = static_cast<float>(std::min(g_Pos1.z, hit.blockPos.z));
+      float bx1 = static_cast<float>(std::max(g_Pos1.x, hit.blockPos.x) + 1);
+      float by1 = static_cast<float>(std::max(g_Pos1.y, hit.blockPos.y) + 1);
+      float bz1 = static_cast<float>(std::max(g_Pos1.z, hit.blockPos.z) + 1);
+      DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
+                           by1 + 0.01f, bz1 + 0.01f, 0.042f, 0.018f, 0.25f,
+                           0.88f, 1.0f, 0.65f);
+    }
+    return;
+  }
+
+  if (g_Phase == CapturePhase::BoxLockedReadyToSave) {
+    float bx0 = static_cast<float>(g_MinB.x);
+    float by0 = static_cast<float>(g_MinB.y);
+    float bz0 = static_cast<float>(g_MinB.z);
+    float bx1 = static_cast<float>(g_MaxB.x + 1);
+    float by1 = static_cast<float>(g_MaxB.y + 1);
+    float bz1 = static_cast<float>(g_MaxB.z + 1);
+    DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
+                         by1 + 0.01f, bz1 + 0.01f, 0.044f, 0.018f, 0.28f, 0.95f,
+                         0.64f, 0.70f);
+
+    for (uint64_t key : g_PendingCols) {
+      int32_t cx = 0, cz = 0;
+      UnpackCol(key, cx, cz);
+      float cx0 = static_cast<float>(std::max(g_MinB.x, cx << 4));
+      float cx1 = static_cast<float>(std::min(g_MaxB.x, (cx << 4) + 15) + 1);
+      float cz0 = static_cast<float>(std::max(g_MinB.z, cz << 4));
+      float cz1 = static_cast<float>(std::min(g_MaxB.z, (cz << 4) + 15) + 1);
+      DrawDualOutlineBox3D(cx0, by0, cz0, cx1, by1, cz1, 0.038f, 0.015f, 1.0f,
+                           0.68f, 0.18f, 0.55f * pulse);
+    }
+  }
 }
 
 bool FinalizeAndSaveBmet(const std::string &name, const std::string &dirPath,
