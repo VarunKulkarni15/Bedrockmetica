@@ -375,24 +375,42 @@ Vec3f GetCameraOrigin() {
   return g_CameraOrigin;
 }
 
-bool TryReadCarriedItemSeh(void *ci, int lvlPlayerIdx, int itemIdx,
-                           uintptr_t &outPlayer, uintptr_t &outStack,
-                           uintptr_t &outItemPtr, uint8_t &outCount,
-                           uint8_t &outValid) {
+bool TryReadCarriedItemSeh(void *ci, int lvlPlayerIdx, uintptr_t &outPlayer,
+                           uintptr_t &outStack, uintptr_t &outItemPtr,
+                           uint8_t &outCount, uint8_t &outValid,
+                           int32_t &outSlot, bool &outDisabled) {
   outPlayer = 0;
   outStack = 0;
   outItemPtr = 0;
   outCount = 0;
   outValid = 0;
+  outSlot = -1;
+  outDisabled = false;
   __try {
     void *player = CallVFunc<void *>(static_cast<size_t>(lvlPlayerIdx), ci);
     outPlayer = reinterpret_cast<uintptr_t>(player);
     if (!IsValidReadablePtr(player))
       return false;
-    void *itemStack = CallVFunc<void *>(static_cast<size_t>(itemIdx), player);
+
+    uintptr_t supplies = *reinterpret_cast<const uintptr_t *>(outPlayer + 0x5E0);
+    if (!IsValidReadablePtr(reinterpret_cast<const void *>(supplies)))
+      return false;
+
+    if (*reinterpret_cast<const uint8_t *>(supplies + 0xB0) != 0) {
+      outDisabled = true;
+      return true;
+    }
+
+    outSlot = *reinterpret_cast<const int32_t *>(supplies + 0x10);
+    void *inv = *reinterpret_cast<void *const *>(supplies + 0xB8);
+    if (!IsValidReadablePtr(inv))
+      return false;
+
+    void *itemStack = CallVFunc<void *>(7, inv, outSlot);
     outStack = reinterpret_cast<uintptr_t>(itemStack);
     if (!IsValidReadablePtr(itemStack))
       return false;
+
     outItemPtr = *reinterpret_cast<const uintptr_t *>(outStack + 0x08);
     outCount = *reinterpret_cast<const uint8_t *>(outStack + 0x22);
     outValid = *reinterpret_cast<const uint8_t *>(outStack + 0x23);
@@ -411,24 +429,26 @@ bool IsLocalPlayerBareHanded() {
   int idx = GET_OFFSET("ClientInstance::getLocalPlayerVIdx");
   if (idx <= 0)
     idx = 173;
-  int itemIdx = GET_OFFSET("Actor::getCarriedItemVIdx");
-  if (itemIdx <= 0)
-    itemIdx = 77;
 
   uintptr_t pPtr = 0, sPtr = 0, itemPtr = 0;
   uint8_t count = 0, valid = 0;
-  bool ok = TryReadCarriedItemSeh(ci, idx, itemIdx, pPtr, sPtr, itemPtr, count,
-                                  valid);
-  char msg[192];
+  int32_t slot = -1;
+  bool disabled = false;
+  bool ok = TryReadCarriedItemSeh(ci, idx, pPtr, sPtr, itemPtr, count, valid,
+                                  slot, disabled);
+  char msg[224];
   snprintf(msg, sizeof(msg),
-           "BareHand ok=%d player=0x%llX stack=0x%llX item=0x%llX cnt=%u val=%u",
-           ok ? 1 : 0, static_cast<unsigned long long>(pPtr),
+           "BareHand ok=%d dis=%d slot=%d player=0x%llX stack=0x%llX item=0x%llX cnt=%u val=%u",
+           ok ? 1 : 0, disabled ? 1 : 0, static_cast<int>(slot),
+           static_cast<unsigned long long>(pPtr),
            static_cast<unsigned long long>(sPtr),
            static_cast<unsigned long long>(itemPtr),
            static_cast<unsigned>(count), static_cast<unsigned>(valid));
   Logger::info(msg, "Capture");
   if (!ok)
     return false;
+  if (disabled)
+    return true;
   return (itemPtr == 0) || (count == 0) || (valid == 0);
 }
 
