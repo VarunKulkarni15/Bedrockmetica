@@ -483,9 +483,11 @@ bool LoadBrarchiveIndex(const std::filesystem::path &path, BrarchiveFile &out) {
     return false;
   uint64_t magic = 0;
   uint32_t count = 0;
-  std::memcpy(&magic, hdr, 8);
-  std::memcpy(&count, hdr + 12, 4);
-  if (magic != 0x200000001ULL || count == 0 || count > 20000)
+  uint32_t ver = 0;
+  std::memcpy(&magic, hdr + 0, 8);
+  std::memcpy(&count, hdr + 8, 4);
+  std::memcpy(&ver, hdr + 12, 4);
+  if (magic != 0x267052a0b125277dULL || count == 0 || count > 65536 || ver > 4)
     return false;
 
   std::vector<uint8_t> table(static_cast<size_t>(count) * 256);

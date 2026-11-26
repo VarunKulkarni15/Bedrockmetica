@@ -198,7 +198,13 @@ void FinalizeBoxFromPos1Pos2(void *bs) {
     return;
   }
 
-  g_StagedDoc.Reset("New Capture");
+  g_StagedDoc.name = "New Capture";
+  g_StagedDoc.totalNonAirBlocks = 0;
+  g_StagedDoc.parts.clear();
+  g_StagedDoc.parts.push_back(SchematicPart{});
+  g_StagedDoc.thumbRgba.clear();
+  g_StagedDoc.thumbW = 0;
+  g_StagedDoc.thumbH = 0;
   g_StagedDoc.width = w;
   g_StagedDoc.height = h;
   g_StagedDoc.depth = d;
