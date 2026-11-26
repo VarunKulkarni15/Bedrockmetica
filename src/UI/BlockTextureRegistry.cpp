@@ -701,7 +701,9 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
           static_cast<uint8_t>(std::clamp(sp[1] * tg, 0.0f, 255.0f));
       g_AtlasRgba[dstIdx + 2] =
           static_cast<uint8_t>(std::clamp(sp[2] * tb, 0.0f, 255.0f));
-      g_AtlasRgba[dstIdx + 3] = sp[3];
+      g_AtlasRgba[dstIdx + 3] =
+          (hasTint && baseName.find("grass_side") != std::string::npos) ? 255
+                                                                        : sp[3];
     }
   }
 
@@ -786,20 +788,46 @@ std::string NormalizeBlockAlias(const std::string &id) {
   std::string s = ToLowerStr(id);
   if (s.rfind("minecraft:", 0) == 0)
     s = s.substr(10);
-  if (s == "grass_block")
+  if (s == "grass_block" || s == "grass")
     return "grass";
-  if (s == "oak_planks" || s == "spruce_planks" || s == "birch_planks" ||
-      s == "jungle_planks" || s == "acacia_planks" || s == "dark_oak_planks")
-    return "planks";
-  if (s == "stone_bricks" || s == "mossy_stone_bricks" ||
-      s == "cracked_stone_bricks" || s == "chiseled_stone_bricks")
+  if (s == "tall_grass" || s == "short_grass")
+    return "tallgrass";
+  if (s == "stone_bricks")
     return "stonebrick";
-  if (s == "oak_log")
-    return "log";
-  if (s == "dark_oak_stairs")
-    return "dark_oak_stairs";
-  if (s == "glass_pane")
-    return "glass_pane";
+  if (s == "mossy_stone_bricks")
+    return "stonebrick_mossy";
+  if (s == "cracked_stone_bricks")
+    return "stonebrick_cracked";
+  if (s == "chiseled_stone_bricks")
+    return "stonebrick_carved";
+  if (s == "red_nether_brick_wall" || s == "red_nether_bricks")
+    return "red_nether_brick";
+  if (s == "nether_brick_wall" || s == "nether_bricks")
+    return "nether_brick";
+
+  for (const char *sfx :
+       {"_wall", "_slab", "_stairs", "_fence_gate", "_fence", "_pressure_plate",
+        "_button"}) {
+    std::string su(sfx);
+    if (s.size() > su.size() &&
+        s.compare(s.size() - su.size(), su.size(), su) == 0) {
+      s = s.substr(0, s.size() - su.size());
+      break;
+    }
+  }
+
+  for (const char *wood :
+       {"oak", "spruce", "birch", "jungle", "acacia", "dark_oak"}) {
+    std::string w(wood);
+    std::string texWood = (w == "dark_oak") ? "big_oak" : w;
+    if (s == w + "_log" || s == w + "_wood")
+      return "log_" + texWood;
+    if (s == w + "_planks" || s == w)
+      return "planks_" + texWood;
+  }
+
+  if (s == "stone_brick")
+    return "stonebrick";
   return s;
 }
 
