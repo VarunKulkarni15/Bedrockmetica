@@ -56,5 +56,8 @@ void DrawFilledBox3D(float minX, float minY, float minZ, float maxX, float maxY,
 void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                     float maxZ, float thickness, float r, float g, float b,
                     float a);
+void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
+                          float bgA, float fgR, float fgG, float fgB,
+                          float fgA);
 
 }

@@ -444,49 +444,19 @@ void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
   float easeBack = 1.0f + c3 * tm1 * tm1 * tm1 + c1 * tm1 * tm1;
   float scale = std::clamp(0.18f + 0.82f * easeBack, 0.18f, 1.12f);
   float alphaFade = std::clamp(elapsed / 160.0f, 0.0f, 1.0f);
-  float rise = 0.22f + 0.28f * std::clamp(easeBack, 0.0f, 1.06f);
+  float rise = 0.28f + 0.36f * std::clamp(easeBack, 0.0f, 1.06f);
   float bob =
-      (t >= 1.0f) ? (0.032f * std::sin(static_cast<float>(nowMs) * 0.0034f))
+      (t >= 1.0f) ? (0.04f * std::sin(static_cast<float>(nowMs) * 0.0034f))
                   : 0.0f;
 
   float cx = bx + 0.5f;
   float cy = by + 1.0f + rise + bob;
   float cz = bz + 0.5f;
-  float half = 0.24f * scale;
-  float depth = 0.07f * scale;
+  float half = 0.36f * scale;
 
-  BedrockGame::DrawFilledBox3D(cx - half, cy - half, cz - depth, cx + half,
-                               cy + half, cz + depth, 0.06f, 0.08f, 0.14f,
-                               0.90f * alphaFade);
-  BedrockGame::DrawThickBox3D(cx - half, cy - half, cz - depth, cx + half,
-                              cy + half, cz + depth, 0.022f * scale, 1.0f,
-                              0.82f, 0.25f, 0.96f * alphaFade);
-
-  float u = 0.055f * scale;
-  float gz0 = cz - depth - 0.008f * scale;
-  float gz1 = cz + depth + 0.008f * scale;
-  float r = 1.0f, g = 0.84f, b = 0.26f;
-  float a = (0.88f + 0.12f * pulse) * alphaFade;
-
-  if (num == 1) {
-    BedrockGame::DrawFilledBox3D(cx - 0.5f * u, cy - 2.2f * u, gz0,
-                                 cx + 0.5f * u, cy + 2.2f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx - 1.5f * u, cy + 1.2f * u, gz0,
-                                 cx - 0.5f * u, cy + 2.0f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx - 1.5f * u, cy - 2.2f * u, gz0,
-                                 cx + 1.5f * u, cy - 1.4f * u, gz1, r, g, b, a);
-  } else {
-    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy + 1.4f * u, gz0,
-                                 cx + 1.6f * u, cy + 2.2f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx + 0.6f * u, cy + 0.0f * u, gz0,
-                                 cx + 1.6f * u, cy + 1.4f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 0.4f * u, gz0,
-                                 cx + 1.6f * u, cy + 0.4f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 1.4f * u, gz0,
-                                 cx - 0.6f * u, cy - 0.4f * u, gz1, r, g, b, a);
-    BedrockGame::DrawFilledBox3D(cx - 1.6f * u, cy - 2.2f * u, gz0,
-                                 cx + 1.6f * u, cy - 1.4f * u, gz1, r, g, b, a);
-  }
+  BedrockGame::DrawBillboardBadge3D(cx, cy, cz, half, num, 0.92f * alphaFade,
+                                    1.0f, 0.84f, 0.25f,
+                                    (0.90f + 0.10f * pulse) * alphaFade);
 }
 
 void RenderWorldVisuals() {

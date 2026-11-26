@@ -2,6 +2,7 @@
 #include "../Utils/Logger.hpp"
 #include "../Utils/SignatureAndOffsetManager.hpp"
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <windows.h>
@@ -731,6 +732,117 @@ void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
     g_RenderMeshImm(scn, tess, mat, emptyTexVariant);
   } __except (EXCEPTION_EXECUTE_HANDLER) {
   }
+}
+
+void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
+                          float bgA, float fgR, float fgG, float fgB,
+                          float fgA) {
+  if (!IsRenderReady())
+    return;
+  void *scn = GetScreenContext();
+  void *tess = GetTessellator();
+  void *mat = GetSelectionOverlayMaterial();
+  if (!scn || !tess || !mat)
+    return;
+
+  Vec3f origin = GetCameraOrigin();
+  float dx = cx - origin.x;
+  float dy = cy - origin.y;
+  float dz = cz - origin.z;
+  float distSq = dx * dx + dy * dy + dz * dz;
+  if (distSq > 128.0f * 128.0f)
+    return;
+
+  float hLen = std::sqrt(dx * dx + dz * dz);
+  float rx = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
+  float rz = (hLen > 0.001f) ? (-dx / hLen) : 0.0f;
+  float fx = (hLen > 0.001f) ? (dx / hLen) : 0.0f;
+  float fz = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
+
+  float dist = std::sqrt(distSq);
+  float distScale = 1.0f;
+  if (dist > 10.0f) {
+    distScale = 1.0f + (dist - 10.0f) * 0.035f;
+    if (distScale > 2.4f)
+      distScale = 2.4f;
+  }
+  float hs = halfSize * distScale;
+
+  float ocx = cx - origin.x;
+  float ocy = cy - origin.y;
+  float ocz = cz - origin.z;
+
+  auto emitPanel = [&](float u0, float v0, float u1, float v1, float fwdOff) {
+    float px = ocx + fx * fwdOff;
+    float pz = ocz + fz * fwdOff;
+    float x0 = px + rx * u0, z0 = pz + rz * u0;
+    float x1 = px + rx * u1, z1 = pz + rz * u1;
+    float y0 = ocy + v0, y1 = ocy + v1;
+    EmitQuadFace(tess, x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0);
+    EmitQuadFace(tess, x1, y0, z1, x0, y0, z0, x0, y1, z0, x1, y1, z1);
+  };
+
+  auto drawColoredGroup = [&](float r, float g, float b, float a, int modeVerts,
+                              auto &&emitFn) {
+    __try {
+      uintptr_t colOff =
+          static_cast<uintptr_t>(GET_OFFSET("ScreenContext::colorHolder"));
+      if (colOff == 0)
+        colOff = 0x30;
+      auto *colHolder = *reinterpret_cast<float **>(
+          reinterpret_cast<uintptr_t>(scn) + colOff);
+      if (IsValidReadablePtr(colHolder)) {
+        colHolder[0] = r;
+        colHolder[1] = g;
+        colHolder[2] = b;
+        colHolder[3] = a;
+        *reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(colHolder) +
+                                     0x10) = 1;
+      }
+      auto *tessOff =
+          reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
+      tessOff[0] = 0.0f;
+      tessOff[1] = 0.0f;
+      tessOff[2] = 0.0f;
+      auto *tessScale =
+          reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
+      tessScale[0] = 1.0f;
+      tessScale[1] = 1.0f;
+      tessScale[2] = 1.0f;
+
+      g_TessBegin(tess, 0, 1, modeVerts, false);
+      g_TessColor(tess, r, g, b, a);
+      emitFn();
+      uint8_t emptyTexVariant[48] = {};
+      g_RenderMeshImm(scn, tess, mat, emptyTexVariant);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+  };
+
+  drawColoredGroup(0.06f, 0.08f, 0.14f, bgA, 8, [&]() {
+    emitPanel(-hs, -hs, hs, hs, 0.0f);
+  });
+
+  float bt = hs * 0.11f;
+  float u = hs * 0.24f;
+  drawColoredGroup(fgR, fgG, fgB, fgA, 72, [&]() {
+    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, -0.008f);
+    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, -0.008f);
+    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, -0.008f);
+    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, -0.008f);
+
+    if (num == 1) {
+      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, -0.016f);
+      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, -0.016f);
+      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, -0.016f);
+    } else {
+      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, -0.016f);
+      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, -0.016f);
+      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, -0.016f);
+      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, -0.016f);
+      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, -0.016f);
+    }
+  });
 }
 
 }
