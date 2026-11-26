@@ -73,6 +73,7 @@ static bool g_ShowUnloadConfirm = false;
 static bool g_ShowSaveModal = false;
 static bool g_ShowRenameModal = false;
 static bool g_ShowImportModal = false;
+static bool g_ShowExportModal = false;
 static bool g_CaptureMode = false;
 static bool g_DeleteConfirm = false;
 static double g_DeleteConfirmTime = 0.0;
@@ -102,6 +103,8 @@ static float g_UnloadModalAnim = 0.0f;
 static float g_SaveModalAnim = 0.0f;
 static float g_RenameModalAnim = 0.0f;
 static float g_ImportModalAnim = 0.0f;
+static float g_ExportModalAnim = 0.0f;
+static bool g_LibraryInitialized = false;
 
 struct ImportCandidate {
   std::string filename;
@@ -142,73 +145,10 @@ std::string GetSchematicsDir() {
 }
 
 void SeedStarterLibraryIfEmpty() {
-  if (!g_Entries.empty())
+  if (g_LibraryInitialized)
     return;
-
-  g_Entries = {{"cherry_pagoda",
-                "Cherry Pagoda",
-                ".mcstructure",
-                34,
-                28,
-                34,
-                14820,
-                UiAssets::ThumbId::Pagoda,
-                "",
-                false,
-                {{"Stone Bricks", 420, 420, IM_COL32(118, 124, 138, 255)},
-                 {"Spruce Planks", 284, 380, IM_COL32(126, 86, 52, 255)},
-                 {"Red Nether Bricks", 190, 460, IM_COL32(176, 46, 54, 255)},
-                 {"Calcite", 64, 310, IM_COL32(234, 228, 218, 255)},
-                 {"Cherry Leaves", 0, 180, IM_COL32(246, 152, 184, 255)},
-                 {"Lantern", 12, 48, IM_COL32(255, 214, 92, 255)},
-                 {"Gold Block", 18, 32, IM_COL32(248, 192, 46, 255)},
-                 {"Oak Fence", 0, 64, IM_COL32(166, 132, 82, 255)},
-                 {"Moss Carpet", 24, 40, IM_COL32(78, 168, 86, 255)}}},
-               {"iron_trading_hall",
-                "Iron Trading Hall",
-                ".mcstructure",
-                42,
-                14,
-                28,
-                6410,
-                UiAssets::ThumbId::TradingHall,
-                "",
-                false,
-                {{"Stone Bricks", 0, 2640, IM_COL32(118, 124, 138, 255)},
-                 {"Oak Planks", 0, 1520, IM_COL32(182, 142, 86, 255)},
-                 {"Glass Pane", 0, 890, IM_COL32(174, 224, 246, 255)},
-                 {"Lectern", 0, 680, IM_COL32(158, 114, 64, 255)},
-                 {"Sea Lantern", 0, 420, IM_COL32(172, 232, 220, 255)},
-                 {"Hopper", 0, 260, IM_COL32(96, 102, 114, 255)}}},
-               {"cubecraft_bridge",
-                "CubeCraft Bridge",
-                ".bmet",
-                18,
-                9,
-                44,
-                2190,
-                UiAssets::ThumbId::Bridge,
-                "",
-                false,
-                {{"Quartz Pillar", 0, 980, IM_COL32(232, 236, 244, 255)},
-                 {"Red Terracotta", 0, 640, IM_COL32(186, 62, 58, 255)},
-                 {"Dark Oak Stair", 0, 420, IM_COL32(84, 56, 36, 255)},
-                 {"Glowstone", 0, 150, IM_COL32(245, 206, 84, 255)}}},
-               {"redstone_vault",
-                "Redstone Vault",
-                ".mcstructure",
-                24,
-                16,
-                24,
-                5840,
-                UiAssets::ThumbId::Vault,
-                "",
-                false,
-                {{"Deepslate Tiles", 0, 3120, IM_COL32(72, 78, 94, 255)},
-                 {"Redstone Block", 0, 920, IM_COL32(224, 48, 48, 255)},
-                 {"Sticky Piston", 0, 640, IM_COL32(132, 178, 94, 255)},
-                 {"Observer", 0, 580, IM_COL32(102, 108, 122, 255)},
-                 {"Copper Grate", 0, 580, IM_COL32(204, 112, 74, 255)}}}};
+  g_LibraryInitialized = true;
+  g_Entries.clear();
 
   std::error_code ec;
   std::string dir = GetSchematicsDir();
@@ -1105,6 +1045,7 @@ void DrawRenameModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
       }
       if (ok) {
         entry.name = newName;
+        PreviewRenderer::Invalidate();
         g_ShowRenameModal = false;
         SoundManager::Play(UISound::Success);
         ToastManager::Show(ToastType::Success, "RENAMED",
@@ -1113,6 +1054,150 @@ void DrawRenameModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
         SoundManager::Play(UISound::Error);
         ToastManager::Show(ToastType::Error, "RENAME FAILED",
                            "Target filename already exists or is locked.");
+      }
+    }
+  }
+}
+
+void DrawExportModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
+                     const StructureEntry *sel, ImFont *fontDisplay,
+                     ImFont *fontBold, ImFont *fontReg, float ma) {
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::ObsidianWindow, mPos,
+                          curSize, ma, true);
+
+  ImVec2 hdrPos(mPos.x + 14.0f, mPos.y + 14.0f);
+  ImVec2 hdrSize(curSize.x - 28.0f, 54.0f);
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::BlueBanner, hdrPos, hdrSize,
+                          ma, false);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontDisplay, 20.0f, hdrPos.x + 18.0f, hdrPos.y + 27.0f,
+      hdrSize.x - 90.0f, "EXPORT STRUCTURE",
+      IM_COL32(255, 255, 255, static_cast<int>(255 * ma)),
+      IM_COL32(10, 54, 102, static_cast<int>(255 * ma)));
+
+  if (UiDraw::DrawActionButton(
+          draw, "##ExportCloseBtn", "X",
+          ImVec2(mPos.x + curSize.x - 66.0f, mPos.y + 21.0f),
+          ImVec2(44.0f, 40.0f), UiAssets::PlateId::RedDanger, fontDisplay,
+          15.0f, IM_COL32(255, 255, 255, 255), IM_COL32(107, 18, 22, 255), true,
+          ma)) {
+    g_ShowExportModal = false;
+  }
+
+  auto makeSafeStem = [](const std::string &in) {
+    std::string out;
+    for (char c : in) {
+      unsigned char uc = static_cast<unsigned char>(c);
+      if (std::isalnum(uc) || c == '_' || c == '-' || c == ' ')
+        out.push_back(c);
+    }
+    while (!out.empty() && out.back() == ' ')
+      out.pop_back();
+    while (!out.empty() && out.front() == ' ')
+      out.erase(out.begin());
+    return out.empty() ? std::string("exported_build") : out;
+  };
+
+  if (!sel || !sel->isDiskFile || sel->filePath.empty()) {
+    g_ShowExportModal = false;
+    return;
+  }
+
+  bool fitsVanilla = (sel->w <= 64 && sel->h <= 384 && sel->d <= 64);
+  std::string stem = makeSafeStem(sel->name);
+
+  char titleBuf[160];
+  snprintf(titleBuf, sizeof(titleBuf), "Target: %s  (%dx%dx%d, %d blks)",
+           sel->name.c_str(), sel->w, sel->h, sel->d, sel->totalBlocks);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontBold, 16.0f, mPos.x + 24.0f, mPos.y + 94.0f, curSize.x - 48.0f,
+      titleBuf, IM_COL32(236, 242, 255, static_cast<int>(255 * ma)),
+      IM_COL32(0, 0, 0, 0), 0.0f);
+
+  float cardX = mPos.x + 22.0f;
+  float cardW = curSize.x - 44.0f;
+  float card1Y = mPos.y + 114.0f;
+  float cardH = 86.0f;
+
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::SlateCard,
+                          ImVec2(cardX, card1Y), ImVec2(cardW, cardH), ma, true);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontDisplay, 16.0f, cardX + 16.0f, card1Y + 26.0f, cardW - 180.0f,
+      ".MCSTRUCTURE (VANILLA NBT)",
+      IM_COL32(120, 210, 255, static_cast<int>(255 * ma)));
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontReg, 13.5f, cardX + 16.0f, card1Y + 54.0f, cardW - 180.0f,
+      fitsVanilla
+          ? "Within 64x384x64 limit. Compatible with Structure Blocks & Viewers."
+          : "Exceeds Vanilla 64x384x64 limit! Use .BMET instead.",
+      fitsVanilla ? IM_COL32(175, 198, 224, static_cast<int>(255 * ma))
+                  : IM_COL32(255, 130, 120, static_cast<int>(255 * ma)),
+      IM_COL32(0, 0, 0, 0), 0.0f);
+
+  if (UiDraw::DrawActionButton(
+          draw, "##ExportMcStructChoice", "EXPORT .MCSTRUCTURE",
+          ImVec2(cardX + cardW - 166.0f, card1Y + 20.0f), ImVec2(152.0f, 46.0f),
+          UiAssets::PlateId::BlueBanner, fontDisplay, 12.5f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(10, 54, 102, 255), fitsVanilla,
+          ma)) {
+    Bedrockmetica::SchematicDocument doc;
+    bool loaded =
+        (sel->format == ".bmet")
+            ? Bedrockmetica::BmetCodec::LoadFromFile(sel->filePath, doc)
+            : Bedrockmetica::McStructureCodec::LoadFile(sel->filePath, doc);
+    if (loaded) {
+      doc.name = sel->name;
+      std::filesystem::path outPath =
+          std::filesystem::path(GetSchematicsDir()) / (stem + ".mcstructure");
+      if (Bedrockmetica::McStructureCodec::SaveFile(outPath.string(), doc)) {
+        UpsertDiskEntryFromPath(outPath.string());
+        g_ShowExportModal = false;
+        SoundManager::Play(UISound::Success);
+        ToastManager::Show(ToastType::Success, "EXPORTED .MCSTRUCTURE",
+                           "Saved '" + outPath.filename().string() + "'.");
+      } else {
+        ToastManager::Show(ToastType::Error, "EXPORT FAILED",
+                           "Could not write .mcstructure file.");
+      }
+    }
+  }
+
+  float card2Y = card1Y + cardH + 14.0f;
+  UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::SlateCard,
+                          ImVec2(cardX, card2Y), ImVec2(cardW, cardH), ma, true);
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontDisplay, 16.0f, cardX + 16.0f, card2Y + 26.0f, cardW - 180.0f,
+      ".BMET (UNLIMITED SIZE)",
+      IM_COL32(115, 240, 155, static_cast<int>(255 * ma)));
+  UiDraw::DrawTextLeftEllipsis(
+      draw, fontReg, 13.5f, cardX + 16.0f, card2Y + 54.0f, cardW - 180.0f,
+      "No 64x64 limit. Preserves full palette, block states & compressed subchunks.",
+      IM_COL32(175, 198, 224, static_cast<int>(255 * ma)),
+      IM_COL32(0, 0, 0, 0), 0.0f);
+
+  if (UiDraw::DrawActionButton(
+          draw, "##ExportBmetChoice", "EXPORT .BMET",
+          ImVec2(cardX + cardW - 166.0f, card2Y + 20.0f), ImVec2(152.0f, 46.0f),
+          UiAssets::PlateId::EmeraldCTA, fontDisplay, 13.0f,
+          IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true, ma)) {
+    Bedrockmetica::SchematicDocument doc;
+    bool loaded =
+        (sel->format == ".bmet")
+            ? Bedrockmetica::BmetCodec::LoadFromFile(sel->filePath, doc)
+            : Bedrockmetica::McStructureCodec::LoadFile(sel->filePath, doc);
+    if (loaded) {
+      doc.name = sel->name;
+      std::filesystem::path outPath =
+          std::filesystem::path(GetSchematicsDir()) / (stem + ".bmet");
+      if (Bedrockmetica::BmetCodec::SaveToFile(outPath.string(), doc)) {
+        UpsertDiskEntryFromPath(outPath.string());
+        g_ShowExportModal = false;
+        SoundManager::Play(UISound::Success);
+        ToastManager::Show(ToastType::Success, "EXPORTED .BMET",
+                           "Saved '" + outPath.filename().string() + "'.");
+      } else {
+        ToastManager::Show(ToastType::Error, "EXPORT FAILED",
+                           "Could not write .bmet file.");
       }
     }
   }
@@ -1701,41 +1786,9 @@ void RenderScreen1Library(float screenWidth, float screenHeight, float easeOut,
           ImVec2(rightX + delW + renW + 20.0f * s, ctaY), ImVec2(expW, botBarH),
           UiAssets::PlateId::BlueBanner, fontDisplay, FsDisp(14.5f),
           IM_COL32(255, 255, 255, 255), IM_COL32(10, 54, 102, 255),
-          sel != nullptr, alpha)) {
+          sel != nullptr && sel->isDiskFile, alpha)) {
     if (sel && sel->isDiskFile && !sel->filePath.empty()) {
-      Bedrockmetica::SchematicDocument doc;
-      bool loaded =
-          (sel->format == ".bmet")
-              ? Bedrockmetica::BmetCodec::LoadFromFile(sel->filePath, doc)
-              : Bedrockmetica::McStructureCodec::LoadFile(sel->filePath, doc);
-      if (loaded) {
-        std::filesystem::path outPath =
-            std::filesystem::path(GetSchematicsDir()) /
-            (std::filesystem::path(sel->filePath).stem().string() +
-             ".mcstructure");
-        if (Bedrockmetica::McStructureCodec::SaveFile(outPath.string(), doc)) {
-          UpsertDiskEntryFromPath(outPath.string());
-          if (doc.width > 64 || doc.height > 384 || doc.depth > 64) {
-            ToastManager::Show(
-                ToastType::Info, "EXPORTED (.MCSTRUCTURE)",
-                "Saved '" + outPath.filename().string() +
-                    "' (exceeds Vanilla 64x384x64 Structure Block cap).");
-          } else {
-            ToastManager::Show(ToastType::Success, "EXPORTED",
-                               "Saved '" + outPath.filename().string() +
-                                   "' to schematics folder.");
-          }
-        } else {
-          ToastManager::Show(ToastType::Error, "EXPORT FAILED",
-                             "Could not write .mcstructure file.");
-        }
-      } else {
-        ToastManager::Show(ToastType::Error, "EXPORT FAILED",
-                           "Could not read source schematic data.");
-      }
-    } else if (sel) {
-      ToastManager::Show(ToastType::Info, "EXPORT",
-                         "Starter demo presets cannot be exported. Capture or import a build first.");
+      g_ShowExportModal = true;
     }
   }
 
@@ -2214,7 +2267,9 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   bool showSave = (g_SaveModalAnim > 0.02f);
   bool showRename = (g_RenameModalAnim > 0.02f);
   bool showImport = (g_ImportModalAnim > 0.02f);
-  if (!showSettings && !showUnload && !showSave && !showRename && !showImport)
+  bool showExport = (g_ExportModalAnim > 0.02f);
+  if (!showSettings && !showUnload && !showSave && !showRename &&
+      !showImport && !showExport)
     return;
 
   float dimAnim =
@@ -2224,7 +2279,10 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
                  ? g_SaveModalAnim
                  : (showRename
                         ? g_RenameModalAnim
-                        : (showImport ? g_ImportModalAnim : g_SettingsAnim)));
+                        : (showImport
+                               ? g_ImportModalAnim
+                               : (showExport ? g_ExportModalAnim
+                                             : g_SettingsAnim))));
   float ma = alpha * dimAnim;
 
   ImGuiWindowFlags bgFlags =
@@ -2250,6 +2308,7 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
     g_ShowSaveModal = false;
     g_ShowRenameModal = false;
     g_ShowImportModal = false;
+    g_ShowExportModal = false;
   }
   ImGui::End();
 
@@ -2261,7 +2320,9 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
                                       ? ImVec2(540.0f, 240.0f)
                                       : (showImport
                                              ? ImVec2(680.0f, 520.0f)
-                                             : ImVec2(650.0f, 568.0f))));
+                                             : (showExport
+                                                    ? ImVec2(600.0f, 326.0f)
+                                                    : ImVec2(650.0f, 568.0f)))));
   float scaleIn = 0.94f + 0.06f * dimAnim;
   ImVec2 curSize(std::round(baseSize.x * scaleIn),
                  std::round(baseSize.y * scaleIn));
@@ -2287,6 +2348,12 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
           ? &g_Entries[g_LoadedIndex]
           : nullptr;
 
+  const StructureEntry *selectedEntry =
+      (g_SelectedIndex >= 0 &&
+       g_SelectedIndex < static_cast<int>(g_Entries.size()))
+          ? &g_Entries[g_SelectedIndex]
+          : nullptr;
+
   if (showUnload) {
     DrawUnloadConfirmModal(draw, mPos, curSize, active, fontDisplay, fontBold,
                            fontReg, alpha * g_UnloadModalAnim);
@@ -2299,6 +2366,9 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   } else if (showImport) {
     DrawImportModal(draw, mPos, curSize, fontDisplay, fontBold, fontReg,
                     alpha * g_ImportModalAnim);
+  } else if (showExport) {
+    DrawExportModal(draw, mPos, curSize, selectedEntry, fontDisplay, fontBold,
+                    fontReg, alpha * g_ExportModalAnim);
   } else if (showSettings) {
     DrawSettingsModal(draw, mPos, curSize, fontDisplay, fontBold, fontReg,
                       alpha * g_SettingsAnim);
@@ -2478,7 +2548,7 @@ void TriggerCaptureClickNotice() {
 
 bool HasOpenModal() {
   return g_ShowSettings || g_ShowUnloadConfirm || g_ShowSaveModal ||
-         g_ShowRenameModal || g_ShowImportModal;
+         g_ShowRenameModal || g_ShowImportModal || g_ShowExportModal;
 }
 
 void CloseActiveModal() {
@@ -2488,6 +2558,7 @@ void CloseActiveModal() {
   g_ShowSaveModal = false;
   g_ShowRenameModal = false;
   g_ShowImportModal = false;
+  g_ShowExportModal = false;
 }
 
 void Render(float screenWidth, float screenHeight, bool menuOpen) {
@@ -2533,6 +2604,9 @@ void Render(float screenWidth, float screenHeight, bool menuOpen) {
       (1.0f - std::exp(-24.0f * dt));
   g_ImportModalAnim +=
       (((g_ShowImportModal && menuOpen) ? 1.0f : 0.0f) - g_ImportModalAnim) *
+      (1.0f - std::exp(-24.0f * dt));
+  g_ExportModalAnim +=
+      (((g_ShowExportModal && menuOpen) ? 1.0f : 0.0f) - g_ExportModalAnim) *
       (1.0f - std::exp(-24.0f * dt));
 
   if (g_OpenAnim <= 0.01f) {

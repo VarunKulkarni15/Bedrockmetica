@@ -468,11 +468,27 @@ std::vector<std::filesystem::path> FindVanillaPackDirs() {
   wchar_t exeBuf[MAX_PATH] = {};
   if (GetModuleFileNameW(nullptr, exeBuf, MAX_PATH) == 0)
     return packs;
-  std::filesystem::path exeDir = std::filesystem::path(exeBuf).parent_path();
+  std::filesystem::path rpDir =
+      std::filesystem::path(exeBuf).parent_path() / L"data" / L"resource_packs";
   std::error_code ec;
-  std::filesystem::path vanilla = exeDir / L"data" / L"resource_packs" / L"vanilla";
-  if (std::filesystem::exists(vanilla, ec))
-    packs.push_back(vanilla);
+  if (!std::filesystem::exists(rpDir, ec))
+    return packs;
+  std::filesystem::path baseVanilla = rpDir / L"vanilla";
+  if (std::filesystem::exists(baseVanilla, ec))
+    packs.push_back(baseVanilla);
+  std::vector<std::filesystem::path> versioned;
+  for (const auto &entry : std::filesystem::directory_iterator(rpDir, ec)) {
+    if (!entry.is_directory(ec))
+      continue;
+    std::string nm = ToLowerStr(entry.path().filename().string());
+    if (nm.rfind("vanilla_", 0) == 0) {
+      versioned.push_back(entry.path());
+    }
+  }
+  std::sort(versioned.begin(), versioned.end());
+  for (auto &vp : versioned) {
+    packs.push_back(std::move(vp));
+  }
   return packs;
 }
 
@@ -762,7 +778,10 @@ void BuildCpuAtlasOnce() {
     if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
       break;
     bool tint = kv.second.hasTint || (kv.first == "grass_top") ||
-                (kv.first.find("leaves") != std::string::npos);
+                (kv.first == "tallgrass") || (kv.first == "fern") ||
+                (kv.first == "waterlily") ||
+                (kv.first.find("leaves") != std::string::npos &&
+                 kv.first.find("cherry") == std::string::npos);
     uint32_t rgb = kv.second.hasTint ? kv.second.tintRgb : 0x79C05A;
     AllocAtlasTile(kv.second.path, rgb, tint);
   }
@@ -776,14 +795,21 @@ void BuildCpuAtlasOnce() {
       if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
         break;
       std::string fname = ekv.second.name;
+      std::string low = ToLowerStr(fname);
+      if (low.find("_mers.") != std::string::npos ||
+          low.find("_normal.") != std::string::npos ||
+          low.find(".json") != std::string::npos)
+        continue;
       auto dot = fname.find_last_of('.');
       if (dot != std::string::npos)
         fname = fname.substr(0, dot);
-      bool tint = (fname == "grass_top") || (fname == "tallgrass") ||
-                  (fname == "double_plant_grass_bottom") ||
-                  (fname == "double_plant_grass_top") ||
-                  (fname == "fern") || (fname == "waterlily") ||
-                  (fname.find("leaves") != std::string::npos);
+      std::string fLow = ToLowerStr(fname);
+      bool tint = (fLow == "grass_top") || (fLow == "tallgrass") ||
+                  (fLow == "double_plant_grass_bottom") ||
+                  (fLow == "double_plant_grass_top") ||
+                  (fLow == "fern") || (fLow == "waterlily") ||
+                  (fLow.find("leaves") != std::string::npos &&
+                   fLow.find("cherry") == std::string::npos);
       AllocAtlasTile(fname, tint ? 0x79C05A : 0, tint);
     }
   }
@@ -829,8 +855,8 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "nether_brick";
 
   for (const char *sfx :
-       {"_wall", "_slab", "_stairs", "_fence_gate", "_fence", "_pressure_plate",
-        "_button"}) {
+       {"_wall", "_double_slab", "_slab", "_stairs", "_fence_gate", "_fence",
+        "_pressure_plate", "_button"}) {
     std::string su(sfx);
     if (s.size() > su.size() &&
         s.compare(s.size() - su.size(), su.size(), su) == 0) {
@@ -857,12 +883,21 @@ std::string NormalizeBlockAlias(const std::string &id) {
       return "glass_" + legacyCol;
   }
 
+  if (s == "cherry_log" || s == "cherry_wood")
+    return "cherry_log_side";
+  if (s == "stripped_cherry_log" || s == "stripped_cherry_wood")
+    return "stripped_cherry_log_side";
+  if (s == "cherry_planks" || s == "cherry")
+    return "cherry_planks";
+
   for (const char *wood :
        {"oak", "spruce", "birch", "jungle", "acacia", "dark_oak"}) {
     std::string w(wood);
     std::string texWood = (w == "dark_oak") ? "big_oak" : w;
     if (s == w + "_log" || s == w + "_wood")
       return "log_" + texWood;
+    if (s == "stripped_" + w + "_log" || s == "stripped_" + w + "_wood")
+      return "stripped_" + w + "_log_side";
     if (s == w + "_planks" || s == w)
       return "planks_" + texWood;
   }
@@ -871,6 +906,10 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "glowstone";
   if (s == "stone_brick")
     return "stonebrick";
+  if (s == "normal_stone")
+    return "stone";
+  if (s == "smooth_stone")
+    return "stone_slab_top";
   if (s == "andesite")
     return "stone_andesite";
   if (s == "polished_andesite")
@@ -887,6 +926,30 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "waterlily";
   if (s == "standing_banner" || s == "wall_banner")
     return "planks_oak";
+  if (s == "poppy")
+    return "flower_rose";
+  if (s == "dandelion")
+    return "flower_dandelion";
+  if (s == "azure_bluet")
+    return "flower_houstonia";
+  if (s == "oxeye_daisy")
+    return "flower_oxeye_daisy";
+  if (s == "cornflower")
+    return "flower_cornflower";
+  if (s == "allium")
+    return "flower_allium";
+  if (s == "blue_orchid")
+    return "flower_blue_orchid";
+  if (s == "peony")
+    return "double_plant_paeonia_top";
+  if (s == "rose_bush")
+    return "double_plant_rose_top";
+  if (s == "pink_petals")
+    return "pink_petals";
+  if (s == "grass_path")
+    return "grass_path_side";
+  if (s == "farmland")
+    return "farmland_wet";
   return s;
 }
 
@@ -1122,6 +1185,20 @@ BlockFaces ResolveBlockFaces(const std::string &rawBlockId) {
     if (direct.valid) {
       res.up = res.down = res.north = res.south = res.east = res.west = direct;
     }
+  }
+
+  if (norm == "cherry_log_side") {
+    BlockFaceUVs topUv = ResolveTerrainKey("cherry_log_top");
+    if (topUv.valid)
+      res.up = res.down = topUv;
+  } else if (norm.rfind("log_", 0) == 0) {
+    BlockFaceUVs topUv = ResolveTerrainKey(norm + "_top");
+    if (topUv.valid)
+      res.up = res.down = topUv;
+  } else if (norm == "grass_path_side") {
+    BlockFaceUVs topUv = ResolveTerrainKey("grass_path_top");
+    if (topUv.valid)
+      res.up = topUv;
   }
 
   g_ResolvedCache[norm] = res;
