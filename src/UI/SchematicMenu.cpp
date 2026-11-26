@@ -854,65 +854,40 @@ void DrawCollapsedCornerHud(ImDrawList *draw, float screenW, float screenH,
                             ImFont *fontReg) {
   std::string kn = SwapchainHook::GetMenuToggleKeyName();
   if (g_CaptureMode) {
-    ImVec2 capSize(std::min(640.0f, screenW - 40.0f), 60.0f);
-    ImVec2 capPos(std::round((screenW - capSize.x) * 0.5f), 16.0f);
+    ImVec2 capSize(std::min(620.0f, screenW - 40.0f), 58.0f);
+    ImVec2 capPos(std::round((screenW - capSize.x) * 0.5f), 18.0f);
     Bedrockmetica::CaptureManager::CapturePhase phase =
         Bedrockmetica::CaptureManager::GetPhase();
-
-    UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::ObsidianWindow, capPos,
-                            capSize, 0.96f, true);
-    draw->AddRect(capPos, ImVec2(capPos.x + capSize.x, capPos.y + capSize.y),
-                  IM_COL32(255, 210, 63, 210), 6.0f, 0, 2.0f);
-
-    const char *badgeTxt = "+";
+    UiAssets::PlateId bannerId =
+        (phase ==
+         Bedrockmetica::CaptureManager::CapturePhase::BoxLockedReadyToSave)
+            ? UiAssets::PlateId::EmeraldCTA
+            : UiAssets::PlateId::BlueBanner;
+    UiDraw::DrawPlate9Slice(draw, bannerId, capPos, capSize, 0.96f, true);
     std::string capTxt;
     if (phase == Bedrockmetica::CaptureManager::CapturePhase::ArmedNeedsPos1) {
-      badgeTxt = "1";
-      capTxt = "CAPTURE ARMED  |  RIGHT-CLICK POS 1";
+      capTxt = "CAPTURE: RIGHT-CLICK POS 1  |  [" + kn + "] MENU";
     } else if (phase ==
                Bedrockmetica::CaptureManager::CapturePhase::HasPos1NeedsPos2) {
-      badgeTxt = "2";
-      capTxt = "POS 1 LOCKED  |  RIGHT-CLICK POS 2";
+      capTxt = "POS 1 SET: RIGHT-CLICK POS 2  |  [" + kn + "] MENU";
     } else if (phase == Bedrockmetica::CaptureManager::CapturePhase::
                             BoxLockedReadyToSave) {
-      badgeTxt = "OK";
       int bw = Bedrockmetica::CaptureManager::GetBoxWidth();
       int bh = Bedrockmetica::CaptureManager::GetBoxHeight();
       int bd = Bedrockmetica::CaptureManager::GetBoxDepth();
       int blk = Bedrockmetica::CaptureManager::GetCapturedBlockCount();
       char buf[128];
-      snprintf(buf, sizeof(buf), "BOX READY  %dx%dx%d  (%d BLKS)", bw, bh, bd,
-               blk);
+      snprintf(buf, sizeof(buf), "BOX READY %dx%dx%d (%d BLKS)  |  [%s] SAVE",
+               bw, bh, bd, blk, kn.c_str());
       capTxt = buf;
     } else {
-      capTxt = "CAPTURE MODE ACTIVE";
+      capTxt = "CAPTURE MODE ACTIVE  |  [" + kn + "] MENU";
     }
-
-    ImVec2 sqPos(capPos.x + 10.0f, capPos.y + 10.0f);
-    ImVec2 sqSize(40.0f, 40.0f);
-    UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::SlateCard, sqPos, sqSize,
-                            0.98f, false);
-    draw->AddRect(sqPos, ImVec2(sqPos.x + sqSize.x, sqPos.y + sqSize.y),
-                  IM_COL32(255, 210, 63, 240), 4.0f, 0, 1.5f);
     UiDraw::DrawTextCentered(
-        draw, fontDisplay, 20.0f, sqPos,
-        ImVec2(sqPos.x + sqSize.x, sqPos.y + sqSize.y - 2.0f), badgeTxt,
-        IM_COL32(255, 210, 63, 255), IM_COL32(92, 56, 6, 255));
-
-    std::string keyPill = "[" + kn + "] MENU";
-    float pillW = 114.0f;
-    ImVec2 pillPos(capPos.x + capSize.x - pillW - 10.0f, capPos.y + 12.0f);
-    ImVec2 pillSize(pillW, 36.0f);
-    UiDraw::DrawStatusPill(draw, pillPos, pillSize, UiAssets::PlateId::DarkInset,
-                           fontDisplay, 14.0f, keyPill.c_str(),
-                           IM_COL32(226, 238, 255, 255),
-                           IM_COL32(10, 14, 24, 255), 0.96f);
-
-    UiDraw::DrawTextCentered(
-        draw, fontDisplay, 17.0f,
-        ImVec2(sqPos.x + sqSize.x + 10.0f, capPos.y),
-        ImVec2(pillPos.x - 10.0f, capPos.y + capSize.y - 2.0f), capTxt.c_str(),
-        IM_COL32(255, 210, 63, 255), IM_COL32(92, 56, 6, 255));
+        draw, fontDisplay, 17.5f, capPos,
+        ImVec2(capPos.x + capSize.x, capPos.y + capSize.y - 2.0f),
+        capTxt.c_str(), IM_COL32(255, 255, 255, 255),
+        IM_COL32(10, 54, 102, 255));
   }
 
   if (g_LoadedIndex >= 0 &&

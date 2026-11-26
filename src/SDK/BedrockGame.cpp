@@ -747,11 +747,7 @@ void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
 
   Vec3f origin = GetCameraOrigin();
   float dx = cx - origin.x;
-  float dy = cy - origin.y;
   float dz = cz - origin.z;
-  float distSq = dx * dx + dy * dy + dz * dz;
-  if (distSq > 128.0f * 128.0f)
-    return;
 
   float hLen = std::sqrt(dx * dx + dz * dz);
   float rx = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
@@ -759,14 +755,7 @@ void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
   float fx = (hLen > 0.001f) ? (dx / hLen) : 0.0f;
   float fz = (hLen > 0.001f) ? (dz / hLen) : 1.0f;
 
-  float dist = std::sqrt(distSq);
-  float distScale = 1.0f;
-  if (dist > 10.0f) {
-    distScale = 1.0f + (dist - 10.0f) * 0.035f;
-    if (distScale > 2.4f)
-      distScale = 2.4f;
-  }
-  float hs = halfSize * distScale;
+  float hs = halfSize;
 
   float ocx = cx - origin.x;
   float ocy = cy - origin.y;
@@ -825,22 +814,25 @@ void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
 
   float bt = hs * 0.11f;
   float u = hs * 0.24f;
-  drawColoredGroup(fgR, fgG, fgB, fgA, 72, [&]() {
-    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, -0.008f);
-    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, -0.008f);
-    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, -0.008f);
-    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, -0.008f);
+  drawColoredGroup(fgR, fgG, fgB, fgA, 32, [&]() {
+    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, -0.025f);
+    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, -0.025f);
+    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, -0.025f);
+    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, -0.025f);
+  });
 
+  int numVerts = (num == 1) ? 24 : 40;
+  drawColoredGroup(fgR, fgG, fgB, fgA, numVerts, [&]() {
     if (num == 1) {
-      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, -0.016f);
-      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, -0.016f);
-      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, -0.016f);
+      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, -0.055f);
+      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, -0.055f);
+      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, -0.055f);
     } else {
-      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, -0.016f);
-      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, -0.016f);
-      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, -0.016f);
-      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, -0.016f);
-      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, -0.016f);
+      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, -0.055f);
+      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, -0.055f);
+      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, -0.055f);
+      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, -0.055f);
+      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, -0.055f);
     }
   });
 }

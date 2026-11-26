@@ -428,10 +428,12 @@ void DrawDualOutlineBox3D(float minX, float minY, float minZ, float maxX,
                           float maxY, float maxZ, float outerThick,
                           float innerThick, float r, float g, float b,
                           float outerAlpha) {
-  BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ, outerThick, r,
-                              g, b, outerAlpha);
+  float gap = outerThick * 0.72f;
+  BedrockGame::DrawThickBox3D(minX - gap, minY - gap, minZ - gap, maxX + gap,
+                              maxY + gap, maxZ + gap, outerThick * 0.48f, r, g,
+                              b, outerAlpha);
   BedrockGame::DrawThickBox3D(minX, minY, minZ, maxX, maxY, maxZ, innerThick,
-                              1.0f, 1.0f, 1.0f, 0.96f);
+                              1.0f, 1.0f, 1.0f, 0.98f);
 }
 
 void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
@@ -508,11 +510,9 @@ void RenderWorldVisuals() {
       float bx1 = static_cast<float>(std::max(g_Pos1.x, hit.blockPos.x) + 1);
       float by1 = static_cast<float>(std::max(g_Pos1.y, hit.blockPos.y) + 1);
       float bz1 = static_cast<float>(std::max(g_Pos1.z, hit.blockPos.z) + 1);
-      BedrockGame::DrawFilledBox3D(bx0, by0, bz0, bx1, by1, bz1, 0.22f, 0.86f,
-                                   1.0f, 0.09f);
       DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
                            by1 + 0.01f, bz1 + 0.01f, 0.042f, 0.018f, 0.25f,
-                           0.88f, 1.0f, 0.52f);
+                           0.88f, 1.0f, 0.65f);
     }
     return;
   }
@@ -533,11 +533,9 @@ void RenderWorldVisuals() {
     float bx1 = static_cast<float>(g_MaxB.x + 1);
     float by1 = static_cast<float>(g_MaxB.y + 1);
     float bz1 = static_cast<float>(g_MaxB.z + 1);
-    BedrockGame::DrawFilledBox3D(bx0, by0, bz0, bx1, by1, bz1, 0.25f, 0.92f,
-                                 0.65f, 0.09f);
     DrawDualOutlineBox3D(bx0 - 0.01f, by0 - 0.01f, bz0 - 0.01f, bx1 + 0.01f,
                          by1 + 0.01f, bz1 + 0.01f, 0.044f, 0.018f, 0.28f, 0.95f,
-                         0.64f, 0.56f);
+                         0.64f, 0.70f);
 
     for (uint64_t key : g_PendingCols) {
       int32_t cx = 0, cz = 0;
