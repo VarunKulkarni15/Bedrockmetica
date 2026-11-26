@@ -1117,27 +1117,28 @@ void DrawExportModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
   float cardX = mPos.x + 22.0f;
   float cardW = curSize.x - 44.0f;
   float card1Y = mPos.y + 114.0f;
-  float cardH = 86.0f;
+  float cardH = 88.0f;
+  float btnW = 128.0f;
+  float txtW = cardW - btnW - 44.0f;
 
   UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::SlateCard,
                           ImVec2(cardX, card1Y), ImVec2(cardW, cardH), ma, true);
   UiDraw::DrawTextLeftEllipsis(
-      draw, fontDisplay, 16.0f, cardX + 16.0f, card1Y + 26.0f, cardW - 180.0f,
-      ".MCSTRUCTURE (VANILLA NBT)",
+      draw, fontDisplay, 17.0f, cardX + 18.0f, card1Y + 28.0f, txtW,
+      ".MCSTRUCTURE",
       IM_COL32(120, 210, 255, static_cast<int>(255 * ma)));
   UiDraw::DrawTextLeftEllipsis(
-      draw, fontReg, 13.5f, cardX + 16.0f, card1Y + 54.0f, cardW - 180.0f,
-      fitsVanilla
-          ? "Within 64x384x64 limit. Compatible with Structure Blocks & Viewers."
-          : "Exceeds Vanilla 64x384x64 limit! Use .BMET instead.",
+      draw, fontReg, 13.5f, cardX + 18.0f, card1Y + 56.0f, txtW,
+      fitsVanilla ? "Vanilla NBT (64x384x64 cap) - World & Viewer compatible"
+                  : "Exceeds 64x384x64 Vanilla limit - Use .BMET below",
       fitsVanilla ? IM_COL32(175, 198, 224, static_cast<int>(255 * ma))
                   : IM_COL32(255, 130, 120, static_cast<int>(255 * ma)),
       IM_COL32(0, 0, 0, 0), 0.0f);
 
   if (UiDraw::DrawActionButton(
-          draw, "##ExportMcStructChoice", "EXPORT .MCSTRUCTURE",
-          ImVec2(cardX + cardW - 166.0f, card1Y + 20.0f), ImVec2(152.0f, 46.0f),
-          UiAssets::PlateId::BlueBanner, fontDisplay, 12.5f,
+          draw, "##ExportMcStructChoice", "EXPORT",
+          ImVec2(cardX + cardW - btnW - 14.0f, card1Y + 21.0f),
+          ImVec2(btnW, 46.0f), UiAssets::PlateId::BlueBanner, fontDisplay, 14.5f,
           IM_COL32(255, 255, 255, 255), IM_COL32(10, 54, 102, 255), fitsVanilla,
           ma)) {
     Bedrockmetica::SchematicDocument doc;
@@ -1166,19 +1167,19 @@ void DrawExportModal(ImDrawList *draw, ImVec2 mPos, ImVec2 curSize,
   UiDraw::DrawPlate9Slice(draw, UiAssets::PlateId::SlateCard,
                           ImVec2(cardX, card2Y), ImVec2(cardW, cardH), ma, true);
   UiDraw::DrawTextLeftEllipsis(
-      draw, fontDisplay, 16.0f, cardX + 16.0f, card2Y + 26.0f, cardW - 180.0f,
-      ".BMET (UNLIMITED SIZE)",
+      draw, fontDisplay, 17.0f, cardX + 18.0f, card2Y + 28.0f, txtW,
+      ".BMET",
       IM_COL32(115, 240, 155, static_cast<int>(255 * ma)));
   UiDraw::DrawTextLeftEllipsis(
-      draw, fontReg, 13.5f, cardX + 16.0f, card2Y + 54.0f, cardW - 180.0f,
-      "No 64x64 limit. Preserves full palette, block states & compressed subchunks.",
+      draw, fontReg, 13.5f, cardX + 18.0f, card2Y + 56.0f, txtW,
+      "Unlimited Size - Compressed subchunks & full block states",
       IM_COL32(175, 198, 224, static_cast<int>(255 * ma)),
       IM_COL32(0, 0, 0, 0), 0.0f);
 
   if (UiDraw::DrawActionButton(
-          draw, "##ExportBmetChoice", "EXPORT .BMET",
-          ImVec2(cardX + cardW - 166.0f, card2Y + 20.0f), ImVec2(152.0f, 46.0f),
-          UiAssets::PlateId::EmeraldCTA, fontDisplay, 13.0f,
+          draw, "##ExportBmetChoice", "EXPORT",
+          ImVec2(cardX + cardW - btnW - 14.0f, card2Y + 21.0f),
+          ImVec2(btnW, 46.0f), UiAssets::PlateId::EmeraldCTA, fontDisplay, 14.5f,
           IM_COL32(255, 255, 255, 255), IM_COL32(12, 62, 26, 255), true, ma)) {
     Bedrockmetica::SchematicDocument doc;
     bool loaded =
@@ -2321,7 +2322,7 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
                                       : (showImport
                                              ? ImVec2(680.0f, 520.0f)
                                              : (showExport
-                                                    ? ImVec2(600.0f, 326.0f)
+                                                    ? ImVec2(660.0f, 336.0f)
                                                     : ImVec2(650.0f, 568.0f)))));
   float scaleIn = 0.94f + 0.06f * dimAnim;
   ImVec2 curSize(std::round(baseSize.x * scaleIn),
