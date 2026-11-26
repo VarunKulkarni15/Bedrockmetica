@@ -735,8 +735,8 @@ void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
 }
 
 void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
-                          float bgA, float fgR, float fgG, float fgB,
-                          float fgA) {
+                          float bgA, float brdR, float brdG, float brdB,
+                          float fgR, float fgG, float fgB, float fgA) {
   if (!IsRenderReady())
     return;
   void *scn = GetScreenContext();
@@ -808,27 +808,35 @@ void DrawBillboardBadge3D(float cx, float cy, float cz, float halfSize, int num,
     }
   };
 
-  float bt = hs * 0.12f;
-  float u = hs * 0.26f;
-  drawColoredGroup(fgR, fgG, fgB, fgA, 32, [&]() {
-    emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, 0.0f);
-    emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, 0.0f);
-    emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, 0.0f);
-    emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, 0.0f);
+  drawColoredGroup(0.07f, 0.10f, 0.18f, bgA, 8, [&]() {
+    emitPanel(-hs, -hs, hs, hs, 0.0f);
   });
 
-  int numVerts = (num == 1) ? 24 : 40;
+  float bt = hs * 0.12f;
+  float u = hs * 0.25f;
+  drawColoredGroup(brdR, brdG, brdB, fgA, 64, [&]() {
+    for (float off : {-0.025f, 0.025f}) {
+      emitPanel(-hs - bt, hs - bt, hs + bt, hs + bt, off);
+      emitPanel(-hs - bt, -hs - bt, hs + bt, -hs + bt, off);
+      emitPanel(-hs - bt, -hs + bt, -hs + bt, hs - bt, off);
+      emitPanel(hs - bt, -hs + bt, hs + bt, hs - bt, off);
+    }
+  });
+
+  int numVerts = (num == 1) ? 48 : 80;
   drawColoredGroup(fgR, fgG, fgB, fgA, numVerts, [&]() {
-    if (num == 1) {
-      emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, 0.0f);
-      emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, 0.0f);
-      emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, 0.0f);
-    } else {
-      emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, 0.0f);
-      emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, 0.0f);
-      emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, 0.0f);
-      emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, 0.0f);
-      emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, 0.0f);
+    for (float off : {-0.05f, 0.05f}) {
+      if (num == 1) {
+        emitPanel(-0.55f * u, -2.2f * u, 0.55f * u, 2.2f * u, off);
+        emitPanel(-1.55f * u, 1.15f * u, -0.55f * u, 2.0f * u, off);
+        emitPanel(-1.55f * u, -2.2f * u, 1.55f * u, -1.35f * u, off);
+      } else {
+        emitPanel(-1.6f * u, 1.35f * u, 1.6f * u, 2.2f * u, off);
+        emitPanel(0.55f * u, 0.0f * u, 1.6f * u, 1.35f * u, off);
+        emitPanel(-1.6f * u, -0.42f * u, 1.6f * u, 0.42f * u, off);
+        emitPanel(-1.6f * u, -1.4f * u, -0.55f * u, -0.42f * u, off);
+        emitPanel(-1.6f * u, -2.2f * u, 1.6f * u, -1.35f * u, off);
+      }
     }
   });
 }

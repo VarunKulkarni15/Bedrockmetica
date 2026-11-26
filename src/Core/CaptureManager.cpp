@@ -456,9 +456,13 @@ void DrawHiveCornerBadge3D(float bx, float by, float bz, int num, int64_t setMs,
   float cz = bz + 0.5f;
   float half = 0.36f * scale;
 
-  BedrockGame::DrawBillboardBadge3D(cx, cy, cz, half, num, 0.92f * alphaFade,
-                                    1.0f, 0.84f, 0.25f,
-                                    (0.90f + 0.10f * pulse) * alphaFade);
+  float br = (num == 1) ? 0.24f : 0.28f;
+  float bgCol = (num == 1) ? 0.85f : 0.95f;
+  float bb = (num == 1) ? 1.0f : 0.62f;
+
+  BedrockGame::DrawBillboardBadge3D(cx, cy, cz, half, num, 0.88f * alphaFade,
+                                    br, bgCol, bb, 1.0f, 0.86f, 0.26f,
+                                    (0.92f + 0.08f * pulse) * alphaFade);
 }
 
 void RenderWorldVisuals() {
