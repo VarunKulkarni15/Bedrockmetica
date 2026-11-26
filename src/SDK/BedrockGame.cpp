@@ -835,4 +835,89 @@ bool WorldToScreen(float wx, float wy, float wz, float screenW, float screenH,
   return true;
 }
 
+bool ProjectLine3D(float x0, float y0, float z0, float x1, float y1, float z1,
+                   float screenW, float screenH, float &sx0, float &sy0,
+                   float &sx1, float &sy1) {
+  if (screenW <= 1.0f || screenH <= 1.0f ||
+      !IsValidReadablePtr(g_LevelRendererPlayer))
+    return false;
+
+  Vec3f origin{};
+  Vec3f fwd{};
+  {
+    std::lock_guard<std::mutex> lock(g_StateMutex);
+    origin = g_CameraOrigin;
+    fwd = g_CameraForward;
+  }
+
+  float rx = fwd.y * 0.0f - fwd.z * 1.0f;
+  float ry = fwd.z * 0.0f - fwd.x * 0.0f;
+  float rz = fwd.x * 1.0f - fwd.y * 0.0f;
+  float rLen = std::sqrt(rx * rx + ry * ry + rz * rz);
+  if (rLen < 0.001f) {
+    rx = 1.0f;
+    ry = 0.0f;
+    rz = 0.0f;
+  } else {
+    rx /= rLen;
+    ry /= rLen;
+    rz /= rLen;
+  }
+
+  float ux = ry * fwd.z - rz * fwd.y;
+  float uy = rz * fwd.x - rx * fwd.z;
+  float uz = rx * fwd.y - ry * fwd.x;
+
+  auto toCam = [&](float wx, float wy, float wz, float &xc, float &yc,
+                   float &zc) {
+    float dx = wx - origin.x;
+    float dy = wy - origin.y;
+    float dz = wz - origin.z;
+    xc = dx * rx + dy * ry + dz * rz;
+    yc = dx * ux + dy * uy + dz * uz;
+    zc = dx * fwd.x + dy * fwd.y + dz * fwd.z;
+  };
+
+  float xc0, yc0, zc0, xc1, yc1, zc1;
+  toCam(x0, y0, z0, xc0, yc0, zc0);
+  toCam(x1, y1, z1, xc1, yc1, zc1);
+
+  const float nearZ = 0.05f;
+  if (zc0 < nearZ && zc1 < nearZ)
+    return false;
+  if (zc0 < nearZ) {
+    float t = (nearZ - zc0) / (zc1 - zc0);
+    xc0 += (xc1 - xc0) * t;
+    yc0 += (yc1 - yc0) * t;
+    zc0 = nearZ;
+  } else if (zc1 < nearZ) {
+    float t = (nearZ - zc1) / (zc0 - zc1);
+    xc1 += (xc0 - xc1) * t;
+    yc1 += (yc0 - yc1) * t;
+    zc1 = nearZ;
+  }
+
+  const float fovY = 70.0f * (3.14159265f / 180.0f);
+  float tanHalfFovY = std::tan(fovY * 0.5f);
+  float tanHalfFovX = tanHalfFovY * (screenW / screenH);
+
+  auto proj = [&](float xc, float yc, float zc, float &sx, float &sy) {
+    float ndcX = xc / (zc * tanHalfFovX);
+    float ndcY = yc / (zc * tanHalfFovY);
+    sx = (ndcX + 1.0f) * 0.5f * screenW;
+    sy = (1.0f - ndcY) * 0.5f * screenH;
+  };
+
+  proj(xc0, yc0, zc0, sx0, sy0);
+  proj(xc1, yc1, zc1, sx1, sy1);
+
+  if ((sx0 < -screenW && sx1 < -screenW) ||
+      (sx0 > screenW * 2.0f && sx1 > screenW * 2.0f) ||
+      (sy0 < -screenH && sy1 < -screenH) ||
+      (sy0 > screenH * 2.0f && sy1 > screenH * 2.0f))
+    return false;
+
+  return true;
+}
+
 }

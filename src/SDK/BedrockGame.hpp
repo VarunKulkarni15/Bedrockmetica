@@ -59,5 +59,8 @@ void DrawThickBox3D(float minX, float minY, float minZ, float maxX, float maxY,
 void UpdateCameraForward();
 bool WorldToScreen(float wx, float wy, float wz, float screenW, float screenH,
                    float &outX, float &outY, float &outDist);
+bool ProjectLine3D(float x0, float y0, float z0, float x1, float y1, float z1,
+                   float screenW, float screenH, float &sx0, float &sy0,
+                   float &sx1, float &sy1);
 
 }

@@ -16,6 +16,7 @@
 
 #include "../Core/CaptureManager.hpp"
 #include "../SDK/BedrockGame.hpp"
+#include "../UI/BlockTextureRegistry.hpp"
 #include "../UI/SchematicMenu.hpp"
 #include "../UI/UiAssets.hpp"
 #include "../Utils/ConfigManager.hpp"
@@ -964,11 +965,6 @@ bool IsGameplayHud() {
   if (g_bGameClipLocked.load() || g_bGameCursorHidden.load()) {
     return true;
   }
-  if ((now - g_LastClipLockMs.load()) < 1000ULL ||
-      (now - g_LastSetCursorPosMs.load()) < 1000ULL ||
-      (now - g_LastShowCursorFalseMs.load()) < 1000ULL) {
-    return true;
-  }
 
   CURSORINFO ci{};
   ci.cbSize = sizeof(ci);
@@ -976,9 +972,10 @@ bool IsGameplayHud() {
     if ((ci.flags & CURSOR_SHOWING) == 0 || ci.hCursor == nullptr) {
       return true;
     }
+    return false;
   }
 
-  return g_bRenderLevelHooked.load();
+  return false;
 }
 
 bool IsMenuOpen() { return g_bMenuOpen.load(); }
@@ -1531,6 +1528,13 @@ static void RenderOverlayFrame(float width, float height) {
   CrashGuard::TryExecute(
       [&]() {
         bool inWorld = IsInWorld();
+        static bool s_WasInWorld = false;
+        if (s_WasInWorld && !inWorld) {
+          if (SchematicMenu::IsCaptureModeActive()) {
+            SchematicMenu::SetCaptureModeActive(false);
+          }
+        }
+        s_WasInWorld = inWorld;
         if (g_bMenuOpen.load() && !IsGameplayHud()) {
           SetMenuOpen(false);
         }
@@ -1628,6 +1632,7 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
 
   if (g_CurrentAPI == GraphicsAPI::D3D11 && g_pd3d11Context && g_pd3d11RTV) {
     UiAssets::EnsureDX11(g_pd3d11Device);
+    BlockTextureRegistry::EnsureDX11(g_pd3d11Device);
 
     {
       OverlayCallScope scope;
@@ -1651,6 +1656,8 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
   } else if (g_CurrentAPI == GraphicsAPI::D3D12 && g_pd3d12CommandQueue &&
              g_pd3d12CmdList) {
     UiAssets::EnsureDX12(g_pd3d12Device, g_pd3d12CommandQueue, AllocD3D12Srv);
+    BlockTextureRegistry::EnsureDX12(g_pd3d12Device, g_pd3d12CommandQueue,
+                                     AllocD3D12Srv);
 
     auto *sc3 = reinterpret_cast<IDXGISwapChain3 *>(pSwapChain);
     UINT idx = sc3->GetCurrentBackBufferIndex();
@@ -1763,6 +1770,7 @@ bool Initialize() {
 void Shutdown() {
   RemoveWndProcHook();
   MH_DisableHook(MH_ALL_HOOKS);
+  BlockTextureRegistry::Shutdown();
   UiAssets::Shutdown();
 
   if (g_bImGuiInit.load()) {

@@ -23,6 +23,17 @@ struct CornerMarkerInfo {
   int64_t setMs = 0;
 };
 
+struct SelectionBoxVisual {
+  float minX = 0.0f;
+  float minY = 0.0f;
+  float minZ = 0.0f;
+  float maxX = 0.0f;
+  float maxY = 0.0f;
+  float maxZ = 0.0f;
+  uint32_t outerCol = 0;
+  float outerThick = 3.5f;
+};
+
 void SetActive(bool active);
 bool IsActive();
 void ResetCapture();
@@ -35,6 +46,7 @@ int32_t GetBoxHeight();
 int32_t GetBoxDepth();
 int32_t GetCapturedBlockCount();
 void GetCornerMarkers(CornerMarkerInfo &outPos1, CornerMarkerInfo &outPos2);
+void GetSelectionBoxes(std::vector<SelectionBoxVisual> &outBoxes);
 
 bool HandleBareHandRightClick();
 void TickWorldUpdate();

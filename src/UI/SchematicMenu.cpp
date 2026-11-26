@@ -9,6 +9,7 @@
 #include "../Utils/SoundManager.hpp"
 #include "../Utils/ToastManager.hpp"
 #include "../Utils/Utils.hpp"
+#include "BlockTextureRegistry.hpp"
 #include "UiAssets.hpp"
 #include "UiDraw.hpp"
 
@@ -377,18 +378,38 @@ void DrawBlockIconBox(ImDrawList *draw, ImVec2 minPos, ImVec2 maxPos,
   draw->AddRectFilled(minPos, maxPos,
                       IM_COL32(12, 15, 22, static_cast<int>(240 * alpha)),
                       2.0f);
-  ImTextureID iconTex =
-      UiAssets::GetBlockIconTex(UiAssets::ResolveBlockIcon(m.name));
-  if (iconTex != 0) {
-    ImVec2 padMin(minPos.x + 2.0f, minPos.y + 2.0f);
-    ImVec2 padMax(maxPos.x - 2.0f, maxPos.y - 2.0f);
-    draw->AddImage(iconTex, padMin, padMax, ImVec2(0.0f, 0.0f),
-                   ImVec2(1.0f, 1.0f),
-                   IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)));
-  } else {
-    draw->AddRectFilled(ImVec2(minPos.x + 2.0f, minPos.y + 2.0f),
-                        ImVec2(maxPos.x - 2.0f, maxPos.y - 2.0f), m.swatchColor,
-                        1.0f);
+  bool drewAtlas = false;
+  if (BlockTextureRegistry::IsReady()) {
+    std::string lookupId = m.name;
+    for (char &c : lookupId) {
+      if (c == ' ')
+        c = '_';
+    }
+    auto faces = BlockTextureRegistry::ResolveBlockFaces(lookupId);
+    const auto &f = faces.north.valid ? faces.north : faces.up;
+    if (f.valid) {
+      ImVec2 padMin(minPos.x + 2.0f, minPos.y + 2.0f);
+      ImVec2 padMax(maxPos.x - 2.0f, maxPos.y - 2.0f);
+      draw->AddImage(BlockTextureRegistry::GetAtlasTexId(), padMin, padMax,
+                     ImVec2(f.u0, f.v0), ImVec2(f.u1, f.v1),
+                     IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)));
+      drewAtlas = true;
+    }
+  }
+  if (!drewAtlas) {
+    ImTextureID iconTex =
+        UiAssets::GetBlockIconTex(UiAssets::ResolveBlockIcon(m.name));
+    if (iconTex != 0) {
+      ImVec2 padMin(minPos.x + 2.0f, minPos.y + 2.0f);
+      ImVec2 padMax(maxPos.x - 2.0f, maxPos.y - 2.0f);
+      draw->AddImage(iconTex, padMin, padMax, ImVec2(0.0f, 0.0f),
+                     ImVec2(1.0f, 1.0f),
+                     IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)));
+    } else {
+      draw->AddRectFilled(ImVec2(minPos.x + 2.0f, minPos.y + 2.0f),
+                          ImVec2(maxPos.x - 2.0f, maxPos.y - 2.0f),
+                          m.swatchColor, 1.0f);
+    }
   }
   draw->AddRect(minPos, maxPos,
                 IM_COL32(8, 10, 16, static_cast<int>(255 * alpha)), 2.0f, 0,
@@ -2275,6 +2296,34 @@ void RenderModalHost(float screenWidth, float screenHeight, float alpha,
   ImGui::End();
 }
 
+void DrawSelectionBoxHud(
+    ImDrawList *draw, float screenW, float screenH,
+    const Bedrockmetica::CaptureManager::SelectionBoxVisual &b) {
+  if (!draw)
+    return;
+  const float x0 = b.minX, y0 = b.minY, z0 = b.minZ;
+  const float x1 = b.maxX, y1 = b.maxY, z1 = b.maxZ;
+  const float edges[12][6] = {
+      {x0, y0, z0, x1, y0, z0}, {x1, y0, z0, x1, y0, z1},
+      {x1, y0, z1, x0, y0, z1}, {x0, y0, z1, x0, y0, z0},
+      {x0, y1, z0, x1, y1, z0}, {x1, y1, z0, x1, y1, z1},
+      {x1, y1, z1, x0, y1, z1}, {x0, y1, z1, x0, y1, z0},
+      {x0, y0, z0, x0, y1, z0}, {x1, y0, z0, x1, y1, z0},
+      {x1, y0, z1, x1, y1, z1}, {x0, y0, z1, x0, y1, z1},
+  };
+  for (int i = 0; i < 12; ++i) {
+    float sx0, sy0, sx1, sy1;
+    if (BedrockGame::ProjectLine3D(edges[i][0], edges[i][1], edges[i][2],
+                                   edges[i][3], edges[i][4], edges[i][5],
+                                   screenW, screenH, sx0, sy0, sx1, sy1)) {
+      draw->AddLine(ImVec2(sx0, sy0), ImVec2(sx1, sy1),
+                    static_cast<ImU32>(b.outerCol), b.outerThick);
+      draw->AddLine(ImVec2(sx0, sy0), ImVec2(sx1, sy1),
+                    IM_COL32(255, 255, 255, 245), 1.4f);
+    }
+  }
+}
+
 void DrawShieldCrestWaypoint(
     ImDrawList *draw, ImFont *fontDisplay, float screenW, float screenH,
     const Bedrockmetica::CaptureManager::CornerMarkerInfo &m, int64_t nowMs) {
@@ -2476,6 +2525,11 @@ void Render(float screenWidth, float screenHeight, bool menuOpen) {
       (1.0f - std::exp(-24.0f * dt));
 
   if (g_OpenAnim <= 0.01f) {
+    std::vector<Bedrockmetica::CaptureManager::SelectionBoxVisual> boxes;
+    Bedrockmetica::CaptureManager::GetSelectionBoxes(boxes);
+    for (const auto &box : boxes) {
+      DrawSelectionBoxHud(bgDraw, screenWidth, screenHeight, box);
+    }
     Bedrockmetica::CaptureManager::CornerMarkerInfo m1{}, m2{};
     Bedrockmetica::CaptureManager::GetCornerMarkers(m1, m2);
     if (m1.valid || m2.valid) {
