@@ -317,8 +317,6 @@ int32_t GetBoxDepth() { return g_StagedDoc.depth; }
 int32_t GetCapturedBlockCount() { return g_StagedDoc.totalNonAirBlocks; }
 
 bool HandleBareHandRightClick() {
-  if (!BedrockGame::IsLocalPlayerBareHanded())
-    return false;
   BedrockGame::HitInfo hit;
   if (!BedrockGame::GetAimedHit(hit) || !hit.isBlockHit())
     return false;
@@ -337,11 +335,15 @@ bool HandleBareHandRightClick() {
     g_StagedDoc.Reset("New Capture");
     ClearScratch();
     SoundManager::Play(UISound::Click);
+    Logger::info("Pos1 set at (" + std::to_string(g_Pos1.x) + ", " +
+                     std::to_string(g_Pos1.y) + ", " +
+                     std::to_string(g_Pos1.z) + ")",
+                 "Capture");
     ToastManager::Show(ToastType::Info, "POS 1 SET",
                        "Corner 1 locked at (" + std::to_string(g_Pos1.x) +
                            ", " + std::to_string(g_Pos1.y) + ", " +
                            std::to_string(g_Pos1.z) +
-                           "). Right-click Corner 2 with bare hand.");
+                           "). Right-click Corner 2.");
     return true;
   }
 

@@ -1244,7 +1244,8 @@ static LRESULT CALLBACK hkWndProc(HWND hWnd, UINT uMsg, WPARAM wParam,
 
   if (!g_bMenuOpen.load() && IsGameplayHud() &&
       SchematicMenu::IsCaptureModeActive() && uMsg == WM_RBUTTONDOWN) {
-    if (BedrockGame::IsLocalPlayerBareHanded()) {
+    BedrockGame::HitInfo hit;
+    if (BedrockGame::GetAimedHit(hit) && hit.isBlockHit()) {
       return 0;
     }
   }
