@@ -271,7 +271,8 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
         name.find("fence_gate") == std::string::npos)
       return 9;
     if (name.find("vine") != std::string::npos ||
-        name.find("glow_lichen") != std::string::npos)
+        name.find("glow_lichen") != std::string::npos ||
+        name.find("shelf_mushroom") != std::string::npos)
       return 11;
     return 0;
   };

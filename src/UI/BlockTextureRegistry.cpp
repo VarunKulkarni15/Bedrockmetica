@@ -622,34 +622,82 @@ bool DecodeImageRgba(IWICImagingFactory *wic, const std::vector<uint8_t> &raw,
     return SUCCEEDED(hr);
   }
   if (raw.size() >= 18) {
+    uint8_t idLen = raw[0];
+    uint8_t colorMapType = raw[1];
     uint8_t imgType = raw[2];
+    uint16_t cmLen = 0;
+    uint8_t cmBits = raw[7];
+    std::memcpy(&cmLen, raw.data() + 5, 2);
     uint16_t w = 0, h = 0;
     std::memcpy(&w, raw.data() + 12, 2);
     std::memcpy(&h, raw.data() + 14, 2);
     uint8_t bpp = raw[16];
     uint8_t desc = raw[17];
-    if (imgType == 2 && (bpp == 24 || bpp == 32) && w > 0 && h > 0 &&
-        w <= 512 && h <= 2048) {
-      size_t offset = 18 + raw[0];
+    bool isUncomp = (imgType == 2 || imgType == 3);
+    bool isRle = (imgType == 10 || imgType == 11);
+    bool validBpp = (bpp == 8 || bpp == 24 || bpp == 32);
+    if ((isUncomp || isRle) && validBpp && w > 0 && h > 0 && w <= 512 &&
+        h <= 2048) {
+      size_t cmBytes =
+          colorMapType ? static_cast<size_t>(cmLen) * ((cmBits + 7) / 8) : 0;
+      size_t offset = 18 + idLen + cmBytes;
       size_t bytesPerPx = bpp / 8;
-      if (offset + static_cast<size_t>(w) * h * bytesPerPx <= raw.size()) {
+      size_t totalPx = static_cast<size_t>(w) * h;
+      if (offset < raw.size()) {
         outW = w;
         outH = h;
-        outRgba.resize(static_cast<size_t>(w) * h * 4);
+        outRgba.assign(totalPx * 4, 0);
         bool topOrigin = (desc & 0x20) != 0;
-        for (int y = 0; y < h; ++y) {
-          int srcY = topOrigin ? y : (h - 1 - y);
-          for (int x = 0; x < w; ++x) {
-            const uint8_t *sp = raw.data() + offset +
-                                (static_cast<size_t>(srcY) * w + x) * bytesPerPx;
-            uint8_t *dp = outRgba.data() + (static_cast<size_t>(y) * w + x) * 4;
+        auto writePx = [&](size_t idx, const uint8_t *sp) {
+          size_t pxY = idx / w;
+          size_t pxX = idx % w;
+          size_t dstY = topOrigin ? pxY : (h - 1 - pxY);
+          uint8_t *dp = outRgba.data() + (dstY * w + pxX) * 4;
+          if (bytesPerPx == 1) {
+            dp[0] = sp[0];
+            dp[1] = sp[0];
+            dp[2] = sp[0];
+            dp[3] = sp[0];
+          } else {
             dp[0] = sp[2];
             dp[1] = sp[1];
             dp[2] = sp[0];
-            dp[3] = (bpp == 32) ? sp[3] : 255;
+            dp[3] = (bytesPerPx == 4) ? sp[3] : 255;
           }
+        };
+        if (isUncomp) {
+          if (offset + totalPx * bytesPerPx <= raw.size()) {
+            for (size_t i = 0; i < totalPx; ++i) {
+              writePx(i, raw.data() + offset + i * bytesPerPx);
+            }
+            return true;
+          }
+        } else {
+          size_t pos = offset;
+          size_t idx = 0;
+          while (idx < totalPx && pos < raw.size()) {
+            uint8_t hdr = raw[pos++];
+            size_t count = (hdr & 0x7F) + 1;
+            if (hdr & 0x80) {
+              if (pos + bytesPerPx > raw.size())
+                break;
+              const uint8_t *sp = raw.data() + pos;
+              pos += bytesPerPx;
+              for (size_t k = 0; k < count && idx < totalPx; ++k, ++idx) {
+                writePx(idx, sp);
+              }
+            } else {
+              for (size_t k = 0; k < count && idx < totalPx; ++k, ++idx) {
+                if (pos + bytesPerPx > raw.size())
+                  break;
+                writePx(idx, raw.data() + pos);
+                pos += bytesPerPx;
+              }
+            }
+          }
+          if (idx == totalPx)
+            return true;
         }
-        return true;
       }
     }
   }
@@ -795,9 +843,13 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
 static bool ShouldBiomeTint(const std::string &nameLow) {
   if (nameLow == "grass_top" || nameLow == "tallgrass" ||
       nameLow == "short_grass" || nameLow == "tall_grass" ||
-      nameLow == "fern" || nameLow == "vine" || nameLow == "waterlily" ||
+      nameLow == "fern" || nameLow == "bush" || nameLow == "leaf_litter" ||
+      nameLow == "short_dry_grass" || nameLow == "tall_dry_grass" ||
+      nameLow == "vine" || nameLow == "waterlily" ||
       nameLow == "double_plant_grass_bottom" ||
       nameLow == "double_plant_grass_top" ||
+      nameLow == "double_plant_fern_bottom" ||
+      nameLow == "double_plant_fern_top" ||
       nameLow.find("water_still") != std::string::npos ||
       nameLow.find("water_flow") != std::string::npos)
     return true;
@@ -811,6 +863,9 @@ static uint32_t DefaultBiomeTintRgb(const std::string &nameLow) {
   if (nameLow.find("water_still") != std::string::npos ||
       nameLow.find("water_flow") != std::string::npos)
     return 0x3F76E4;
+  if (nameLow == "leaf_litter" || nameLow == "short_dry_grass" ||
+      nameLow == "tall_dry_grass")
+    return 0xA37546;
   return 0x79C05A;
 }
 
@@ -1038,6 +1093,8 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "grass_path_side";
   if (s == "iron_chain")
     return "chain";
+  if (s == "shelf_mushroom")
+    return "shelf_mushroom_large";
   if (s == "farmland")
     return "farmland_wet";
   return s;
