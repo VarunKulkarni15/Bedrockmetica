@@ -480,18 +480,51 @@ std::vector<std::filesystem::path> FindVanillaPackDirs() {
   std::filesystem::path baseVanilla = rpDir / L"vanilla";
   if (std::filesystem::exists(baseVanilla, ec))
     packs.push_back(baseVanilla);
+
+  auto parseVer = [](const std::string &nm) -> std::vector<int> {
+    std::vector<int> v;
+    int cur = -1;
+    for (char c : nm) {
+      if (c >= '0' && c <= '9') {
+        cur = (cur < 0 ? 0 : cur * 10) + (c - '0');
+      } else if (cur >= 0) {
+        v.push_back(cur);
+        cur = -1;
+      }
+    }
+    if (cur >= 0)
+      v.push_back(cur);
+    return v;
+  };
+
   std::vector<std::filesystem::path> versioned;
+  std::vector<std::filesystem::path> experimental;
   for (const auto &entry : std::filesystem::directory_iterator(rpDir, ec)) {
     if (!entry.is_directory(ec))
       continue;
     std::string nm = ToLowerStr(entry.path().filename().string());
-    if (nm.rfind("vanilla_", 0) == 0) {
+    if (nm.rfind("vanilla_", 0) == 0 && nm != "vanilla_music" &&
+        nm != "vanilla_trial") {
       versioned.push_back(entry.path());
+    } else if (nm.rfind("experimental_", 0) == 0) {
+      experimental.push_back(entry.path());
     }
   }
-  std::sort(versioned.begin(), versioned.end());
+  auto cmpPack = [&](const std::filesystem::path &a,
+                     const std::filesystem::path &b) {
+    auto va = parseVer(a.filename().string());
+    auto vb = parseVer(b.filename().string());
+    if (va != vb)
+      return va < vb;
+    return a.filename().string() < b.filename().string();
+  };
+  std::sort(versioned.begin(), versioned.end(), cmpPack);
+  std::sort(experimental.begin(), experimental.end(), cmpPack);
   for (auto &vp : versioned) {
     packs.push_back(std::move(vp));
+  }
+  for (auto &ep : experimental) {
+    packs.push_back(std::move(ep));
   }
   return packs;
 }
@@ -654,10 +687,14 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
     return {};
 
   std::vector<uint8_t> rawBytes;
+  std::string relTex = ToLowerStr(texPathRaw);
   for (const std::string &ext : {".png", ".tga"}) {
     std::string fname = baseName + ext;
-    for (const auto &arc : g_Archives) {
+    for (auto ait = g_Archives.rbegin(); ait != g_Archives.rend(); ++ait) {
+      const auto &arc = *ait;
       auto eit = arc.entries.find(fname);
+      if (eit == arc.entries.end())
+        eit = arc.entries.find(relTex + ext);
       if (eit != arc.entries.end() && eit->second.size > 0 &&
           eit->second.size < 4 * 1024 * 1024) {
         std::ifstream f(arc.path, std::ios::binary);
@@ -677,8 +714,13 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
     if (!rawBytes.empty())
       break;
     std::error_code ec;
-    for (const auto &pack : g_Packs) {
+    for (auto pit = g_Packs.rbegin(); pit != g_Packs.rend(); ++pit) {
+      const auto &pack = *pit;
       std::filesystem::path loose = pack / L"textures" / L"blocks" / fname;
+      if (!std::filesystem::exists(loose, ec) &&
+          relTex.find('/') != std::string::npos) {
+        loose = pack / (relTex + ext);
+      }
       if (std::filesystem::exists(loose, ec)) {
         std::ifstream f(loose, std::ios::binary | std::ios::ate);
         auto sz = f.tellg();
@@ -790,6 +832,13 @@ void BuildCpuAtlasOnce() {
       ParseBlocksJson(bJson);
     if (ReadTextFile(pack / L"textures" / L"terrain_texture.json", tJson))
       ParseTerrainTextureJson(tJson);
+
+    std::filesystem::path mainTexArc = pack / L"__brarchive" / L"textures.brarchive";
+    if (std::filesystem::exists(mainTexArc, ec)) {
+      BrarchiveFile fullTexBf;
+      if (LoadBrarchiveIndex(mainTexArc, fullTexBf))
+        g_Archives.push_back(std::move(fullTexBf));
+    }
 
     std::filesystem::path texDir = pack / L"__brarchive" / L"textures";
     if (std::filesystem::exists(texDir, ec)) {
@@ -1252,17 +1301,17 @@ const uint8_t *GetAtlasRgbaData() {
 
 BlockFaces ResolveBlockFaces(const std::string &rawBlockId) {
   std::lock_guard<std::mutex> lock(g_RegMutex);
-  std::string norm = NormalizeBlockAlias(rawBlockId);
-  auto cit = g_ResolvedCache.find(norm);
-  if (cit != g_ResolvedCache.end())
-    return cit->second;
-
-  BlockFaces res;
-  res.avgAbgr = Bedrockmetica::ResolveBlockApproxColor(rawBlockId);
-
   std::string rawShort = ToLowerStr(rawBlockId);
   if (rawShort.rfind("minecraft:", 0) == 0)
     rawShort = rawShort.substr(10);
+
+  auto cit = g_ResolvedCache.find(rawShort);
+  if (cit != g_ResolvedCache.end())
+    return cit->second;
+
+  std::string norm = NormalizeBlockAlias(rawBlockId);
+  BlockFaces res;
+  res.avgAbgr = Bedrockmetica::ResolveBlockApproxColor(rawBlockId);
 
   auto bit = g_BlocksJsonMap.find(rawShort);
   if (bit == g_BlocksJsonMap.end())
@@ -1304,7 +1353,10 @@ BlockFaces ResolveBlockFaces(const std::string &rawBlockId) {
       res.up = topUv;
   }
 
-  g_ResolvedCache[norm] = res;
+  if (!res.up.valid && rawShort != "air") {
+    Logger::warn("Unresolved block texture: " + rawShort, "Textures");
+  }
+  g_ResolvedCache[rawShort] = res;
   return res;
 }
 

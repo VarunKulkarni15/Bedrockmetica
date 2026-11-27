@@ -4,6 +4,7 @@
 #include "../IO/McStructureCodec.hpp"
 #include "../Utils/Logger.hpp"
 #include "BlockTextureRegistry.hpp"
+#include "GeneratedBlockModels.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -216,6 +217,9 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
   std::vector<BlockTextureRegistry::BlockFaces> palFaces(doc.palette.size());
   std::vector<int> palShape(doc.palette.size(), 0);
   std::vector<bool> palTrans(doc.palette.size(), false);
+  std::vector<const GeneratedBlockModels::BakedBlockModel *> palBaked(
+      doc.palette.size(), nullptr);
+  std::vector<std::string> palShort(doc.palette.size());
 
   auto classifyShape = [](const std::string &name) -> int {
     if (name.find("light_block") != std::string::npos ||
@@ -239,17 +243,12 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
         name.find("sapling") != std::string::npos ||
         name.find("sugar_cane") != std::string::npos ||
         name.find("reeds") != std::string::npos ||
-        name.find("seagrass") != std::string::npos)
-      return 1;
-    if (name.find("pressure_plate") != std::string::npos ||
-        name.find("carpet") != std::string::npos ||
-        name.find("pink_petals") != std::string::npos ||
-        name.find("wildflowers") != std::string::npos ||
-        name.find("leaf_litter") != std::string::npos ||
-        name.find("waterlily") != std::string::npos ||
-        name.find("lily_pad") != std::string::npos ||
-        name.find("snow_layer") != std::string::npos)
-      return 2;
+        name.find("seagrass") != std::string::npos) {
+      if (name.find("wildflowers") == std::string::npos &&
+          name.find("cactus_flower") == std::string::npos &&
+          name.find("flower_pot") == std::string::npos)
+        return 1;
+    }
     if (name.find("_slab") != std::string::npos &&
         name.find("double_slab") == std::string::npos)
       return 3;
@@ -271,33 +270,35 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
     if (name.find("_fence") != std::string::npos &&
         name.find("fence_gate") == std::string::npos)
       return 9;
-    if (name.find("lantern") != std::string::npos &&
-        name.find("sea_lantern") == std::string::npos &&
-        name.find("jack_o_lantern") == std::string::npos)
-      return 10;
     if (name.find("vine") != std::string::npos ||
         name.find("glow_lichen") != std::string::npos)
       return 11;
-    if (name.find("grass_path") != std::string::npos ||
-        name.find("dirt_path") != std::string::npos ||
-        name.find("farmland") != std::string::npos)
-      return 12;
-    if (name.find("lightning_rod") != std::string::npos)
-      return 13;
-    if (name.find("end_rod") != std::string::npos)
-      return 14;
-    if (name == "minecraft:chain" || name == "chain" ||
-        name.find("iron_chain") != std::string::npos)
-      return 15;
-    if (name.find("torch") != std::string::npos)
-      return 16;
     return 0;
   };
 
   for (size_t i = 1; i < doc.palette.size(); ++i) {
     const std::string &bn = doc.palette[i].name;
+    std::string sn = bn;
+    if (sn.rfind("minecraft:", 0) == 0)
+      sn = sn.substr(10);
+    palShort[i] = sn;
     palFaces[i] = BlockTextureRegistry::ResolveBlockFaces(bn);
     palShape[i] = classifyShape(bn);
+    if (palShape[i] == 0) {
+      std::string jn = sn;
+      if (jn == "grass_path")
+        jn = "dirt_path";
+      else if (jn == "waterlily")
+        jn = "lily_pad";
+      else if (jn == "snow_layer")
+        jn = "snow";
+      else if (jn == "chain")
+        jn = "iron_chain";
+      const auto *bm = GeneratedBlockModels::FindBlock(jn);
+      if (!bm && jn == "iron_chain")
+        bm = GeneratedBlockModels::FindBlock("chain");
+      palBaked[i] = bm;
+    }
     palTrans[i] = (bn.find("water") != std::string::npos &&
                    bn.find("waterlily") == std::string::npos) ||
                   (bn.find("glass") != std::string::npos) ||
@@ -314,7 +315,8 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
     uint16_t pid = getBlk(x, y, z);
     if (pid == 0 || pid >= palShape.size())
       return false;
-    return palShape[pid] == 0 && !palTrans[pid] && doc.palette[pid].isSolid;
+    return palShape[pid] == 0 && palBaked[pid] == nullptr && !palTrans[pid] &&
+           doc.palette[pid].isSolid;
   };
 
   auto computeAo = [&](int32_t bx, int32_t by, int32_t bz, int nx, int ny,
@@ -606,9 +608,7 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
                       az0, 0.74f, sideUv, su0, sv0, su1, sv1);
         };
 
-        if (shape == 2) {
-          emitBox(bx0, by0, bz0, bx1, by0 + 0.08f, bz1, false);
-        } else if (shape == 3) {
+        if (shape == 3) {
           bool topSlab = false;
           for (const auto &st : doc.palette[pid].states) {
             if (st.key == "top_slot_bit" && st.intVal != 0)
@@ -736,100 +736,150 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
             emitBox(bx0 + 0.625f, by0 + 0.375f, bz0 + 0.4375f, bx1,
                     by0 + 0.5625f, bz1 - 0.4375f, false);
           }
-        } else if (shape == 10) {
-          bool hanging = false;
+        } else if (palBaked[pid] != nullptr) {
+          const GeneratedBlockModels::BakedBlockModel *bm = palBaked[pid];
+          int rotX = static_cast<int>(bm->rotX);
+          int rotY = static_cast<int>(bm->rotY);
+          bool isRod = (palShort[pid].find("lightning_rod") != std::string::npos ||
+                        palShort[pid].find("end_rod") != std::string::npos);
           for (const auto &st : doc.palette[pid].states) {
-            if (st.key == "hanging" && st.intVal != 0)
-              hanging = true;
+            if (st.key == "hanging" && st.intVal != 0) {
+              const auto *hv =
+                  GeneratedBlockModels::FindVariant(palShort[pid] + "_hanging");
+              if (hv)
+                bm = hv;
+            }
+            if (st.key == "facing_direction") {
+              int fd = st.intVal;
+              if (isRod) {
+                if (fd == 0) {
+                  rotX = 2;
+                  rotY = 0;
+                } else if (fd == 1) {
+                  rotX = 0;
+                  rotY = 0;
+                } else if (fd == 2) {
+                  rotX = 1;
+                  rotY = 0;
+                } else if (fd == 3) {
+                  rotX = 1;
+                  rotY = 2;
+                } else if (fd == 4) {
+                  rotX = 1;
+                  rotY = 3;
+                } else if (fd == 5) {
+                  rotX = 1;
+                  rotY = 1;
+                }
+              } else {
+                if (fd == 2)
+                  rotY = 0;
+                else if (fd == 5)
+                  rotY = 1;
+                else if (fd == 3)
+                  rotY = 2;
+                else if (fd == 4)
+                  rotY = 3;
+              }
+            }
+            if (st.key == "minecraft:cardinal_direction" ||
+                st.key == "cardinal_direction") {
+              if (st.strVal == "north")
+                rotY = 0;
+              else if (st.strVal == "east")
+                rotY = 1;
+              else if (st.strVal == "south")
+                rotY = 2;
+              else if (st.strVal == "west")
+                rotY = 3;
+            }
           }
-          float yOff = hanging ? 1.0f : 0.0f;
-          const auto &luv = faces.north.valid ? faces.north : faces.up;
-          emitCuboid(5.0f, yOff, 5.0f, 11.0f, yOff + 7.0f, 11.0f, 0.0f, 2.0f,
-                     6.0f, 9.0f, 0.0f, 9.0f, 6.0f, 15.0f, luv, luv, luv);
-          emitCuboid(6.0f, yOff + 7.0f, 6.0f, 10.0f, yOff + 9.0f, 10.0f, 1.0f,
-                     0.0f, 5.0f, 2.0f, 1.0f, 10.0f, 5.0f, 14.0f, luv, luv, luv);
-          if (hanging) {
-            pushSubQuad(bx0 + 6.5f / 16.0f, by0 + 16.0f / 16.0f,
-                        bz0 + 6.5f / 16.0f, bx0 + 9.5f / 16.0f,
-                        by0 + 16.0f / 16.0f, bz0 + 9.5f / 16.0f,
-                        bx0 + 9.5f / 16.0f, by0 + 10.0f / 16.0f,
-                        bz0 + 9.5f / 16.0f, bx0 + 6.5f / 16.0f,
-                        by0 + 10.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.92f, luv,
-                        11.0f, 1.0f, 14.0f, 7.0f);
-            pushSubQuad(bx0 + 9.5f / 16.0f, by0 + 16.0f / 16.0f,
-                        bz0 + 6.5f / 16.0f, bx0 + 6.5f / 16.0f,
-                        by0 + 16.0f / 16.0f, bz0 + 9.5f / 16.0f,
-                        bx0 + 6.5f / 16.0f, by0 + 10.0f / 16.0f,
-                        bz0 + 9.5f / 16.0f, bx0 + 9.5f / 16.0f,
-                        by0 + 10.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.88f, luv,
-                        11.0f, 1.0f, 14.0f, 7.0f);
-          } else {
-            pushSubQuad(bx0 + 6.5f / 16.0f, by0 + 11.0f / 16.0f,
-                        bz0 + 6.5f / 16.0f, bx0 + 9.5f / 16.0f,
-                        by0 + 11.0f / 16.0f, bz0 + 9.5f / 16.0f,
-                        bx0 + 9.5f / 16.0f, by0 + 9.0f / 16.0f,
-                        bz0 + 9.5f / 16.0f, bx0 + 6.5f / 16.0f,
-                        by0 + 9.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.92f, luv,
-                        11.0f, 10.0f, 14.0f, 12.0f);
+
+          const auto &sideUv = faces.north.valid ? faces.north : faces.up;
+          const auto &topUv = faces.up.valid ? faces.up : sideUv;
+          const auto &botUv = faces.down.valid ? faces.down : sideUv;
+          const auto &geom = GeneratedBlockModels::kGeoms[bm->geomIdx];
+
+          auto rotPt = [](float &px, float &py, float &pz, int axis, float deg,
+                          float ox, float oy, float oz) {
+            if (axis == 0 || std::fabs(deg) < 0.01f)
+              return;
+            float rad = deg * 0.0174532925f;
+            float cs = std::cos(rad);
+            float sn = std::sin(rad);
+            float dx = px - ox;
+            float dy = py - oy;
+            float dz = pz - oz;
+            if (axis == 1) {
+              px = ox + dx;
+              py = oy + dy * cs - dz * sn;
+              pz = oz + dy * sn + dz * cs;
+            } else if (axis == 2) {
+              px = ox + dx * cs + dz * sn;
+              py = oy + dy;
+              pz = oz - dx * sn + dz * cs;
+            } else if (axis == 3) {
+              px = ox + dx * cs - dy * sn;
+              py = oy + dx * sn + dy * cs;
+              pz = oz + dz;
+            }
+          };
+
+          for (uint16_t ci = 0; ci < geom.count; ++ci) {
+            const auto &c = GeneratedBlockModels::kCuboids[geom.start + ci];
+            float x0 = c.fx0, y0 = c.fy0, z0 = c.fz0;
+            float x1 = c.fx1, y1 = c.fy1, z1 = c.fz1;
+
+            struct QuadPts {
+              float p[4][3];
+              float shade;
+              const BlockTextureRegistry::BlockFaceUVs *tex;
+            };
+            QuadPts qList[6] = {
+                {{{x0, y1, z0}, {x1, y1, z0}, {x1, y1, z1}, {x0, y1, z1}},
+                 1.00f,
+                 &topUv},
+                {{{x0, y0, z1}, {x1, y0, z1}, {x1, y0, z0}, {x0, y0, z0}},
+                 0.55f,
+                 &botUv},
+                {{{x1, y1, z0}, {x0, y1, z0}, {x0, y0, z0}, {x1, y0, z0}},
+                 0.80f,
+                 &sideUv},
+                {{{x0, y1, z1}, {x1, y1, z1}, {x1, y0, z1}, {x0, y0, z1}},
+                 0.80f,
+                 &sideUv},
+                {{{x1, y1, z1}, {x1, y1, z0}, {x1, y0, z0}, {x1, y0, z1}},
+                 0.90f,
+                 &sideUv},
+                {{{x0, y1, z0}, {x0, y1, z1}, {x0, y0, z1}, {x0, y0, z0}},
+                 0.74f,
+                 &sideUv},
+            };
+
+            for (int fi = 0; fi < 6; ++fi) {
+              const auto &bf = c.faces[fi];
+              if (!bf.valid)
+                continue;
+              QuadPts q = qList[fi];
+              for (int vi = 0; vi < 4; ++vi) {
+                rotPt(q.p[vi][0], q.p[vi][1], q.p[vi][2], c.rotAxis, c.rotAngle,
+                      c.ox, c.oy, c.oz);
+                if (rotX != 0)
+                  rotPt(q.p[vi][0], q.p[vi][1], q.p[vi][2], 1,
+                        static_cast<float>(rotX) * 90.0f, 8.0f, 8.0f, 8.0f);
+                if (rotY != 0)
+                  rotPt(q.p[vi][0], q.p[vi][1], q.p[vi][2], 2,
+                        -static_cast<float>(rotY) * 90.0f, 8.0f, 8.0f, 8.0f);
+                q.p[vi][0] = bx0 + q.p[vi][0] / 16.0f;
+                q.p[vi][1] = by0 + q.p[vi][1] / 16.0f;
+                q.p[vi][2] = bz0 + q.p[vi][2] / 16.0f;
+              }
+              pushSubQuad(q.p[0][0], q.p[0][1], q.p[0][2], q.p[1][0], q.p[1][1],
+                          q.p[1][2], q.p[2][0], q.p[2][1], q.p[2][2], q.p[3][0],
+                          q.p[3][1], q.p[3][2], q.shade, *q.tex, bf.u0, bf.v0,
+                          bf.u1, bf.v1);
+            }
           }
-        } else if (shape == 12) {
-          emitCuboid(0.0f, 0.0f, 0.0f, 16.0f, 15.0f, 16.0f, 0.0f, 1.0f, 16.0f,
-                     16.0f, 0.0f, 0.0f, 16.0f, 16.0f, faces.north, faces.up,
-                     faces.down);
-        } else if (shape == 13) {
-          const auto &ruv = faces.north.valid ? faces.north : faces.up;
-          int fdir = 1;
-          for (const auto &st : doc.palette[pid].states) {
-            if (st.key == "facing_direction")
-              fdir = st.intVal;
-          }
-          if (fdir == 0) {
-            emitCuboid(7.0f, 4.0f, 7.0f, 9.0f, 16.0f, 9.0f, 2.0f, 4.0f, 4.0f,
-                       16.0f, 4.0f, 0.0f, 6.0f, 2.0f, ruv, ruv, ruv);
-            emitCuboid(6.0f, 0.0f, 6.0f, 10.0f, 4.0f, 10.0f, 0.0f, 0.0f, 4.0f,
-                       4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
-          } else if (fdir == 2 || fdir == 3) {
-            emitCuboid(7.0f, 7.0f, (fdir == 2) ? 4.0f : 0.0f, 9.0f, 9.0f,
-                       (fdir == 2) ? 16.0f : 12.0f, 2.0f, 4.0f, 4.0f, 16.0f,
-                       2.0f, 4.0f, 4.0f, 16.0f, ruv, ruv, ruv);
-            emitCuboid(6.0f, 6.0f, (fdir == 2) ? 0.0f : 12.0f, 10.0f, 10.0f,
-                       (fdir == 2) ? 4.0f : 16.0f, 0.0f, 0.0f, 4.0f, 4.0f,
-                       4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
-          } else if (fdir == 4 || fdir == 5) {
-            emitCuboid((fdir == 4) ? 4.0f : 0.0f, 7.0f, 7.0f,
-                       (fdir == 4) ? 16.0f : 12.0f, 9.0f, 9.0f, 2.0f, 4.0f,
-                       4.0f, 16.0f, 2.0f, 4.0f, 4.0f, 16.0f, ruv, ruv, ruv);
-            emitCuboid((fdir == 4) ? 0.0f : 12.0f, 6.0f, 6.0f,
-                       (fdir == 4) ? 4.0f : 16.0f, 10.0f, 10.0f, 0.0f, 0.0f,
-                       4.0f, 4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
-          } else {
-            emitCuboid(7.0f, 0.0f, 7.0f, 9.0f, 12.0f, 9.0f, 2.0f, 4.0f, 4.0f,
-                       16.0f, 4.0f, 0.0f, 6.0f, 2.0f, ruv, ruv, ruv);
-            emitCuboid(6.0f, 12.0f, 6.0f, 10.0f, 16.0f, 10.0f, 0.0f, 0.0f, 4.0f,
-                       4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
-          }
-        } else if (shape == 14) {
-          const auto &ruv = faces.north.valid ? faces.north : faces.up;
-          emitCuboid(6.0f, 0.0f, 6.0f, 10.0f, 1.0f, 10.0f, 2.0f, 14.0f, 6.0f,
-                     15.0f, 2.0f, 12.0f, 6.0f, 16.0f, ruv, ruv, ruv);
-          emitCuboid(7.0f, 1.0f, 7.0f, 9.0f, 16.0f, 9.0f, 2.0f, 0.0f, 4.0f,
-                     15.0f, 0.0f, 0.0f, 2.0f, 2.0f, ruv, ruv, ruv);
-        } else if (shape == 15) {
-          const auto &cuv = faces.north.valid ? faces.north : faces.up;
-          pushSubQuad(bx0 + 6.5f / 16.0f, by1, bz0 + 6.5f / 16.0f,
-                      bx0 + 9.5f / 16.0f, by1, bz0 + 9.5f / 16.0f,
-                      bx0 + 9.5f / 16.0f, by0, bz0 + 9.5f / 16.0f,
-                      bx0 + 6.5f / 16.0f, by0, bz0 + 6.5f / 16.0f, 0.92f, cuv,
-                      0.0f, 0.0f, 3.0f, 16.0f);
-          pushSubQuad(bx0 + 9.5f / 16.0f, by1, bz0 + 6.5f / 16.0f,
-                      bx0 + 6.5f / 16.0f, by1, bz0 + 9.5f / 16.0f,
-                      bx0 + 6.5f / 16.0f, by0, bz0 + 9.5f / 16.0f,
-                      bx0 + 9.5f / 16.0f, by0, bz0 + 6.5f / 16.0f, 0.88f, cuv,
-                      3.0f, 0.0f, 6.0f, 16.0f);
-        } else if (shape == 16) {
-          const auto &tuv = faces.north.valid ? faces.north : faces.up;
-          emitCuboid(7.0f, 0.0f, 7.0f, 9.0f, 10.0f, 9.0f, 7.0f, 6.0f, 9.0f,
-                     16.0f, 7.0f, 6.0f, 9.0f, 8.0f, tuv, tuv, tuv);
         } else if (shape == 11) {
           const auto &uv = faces.north.valid ? faces.north : faces.up;
           bool placed = false;
