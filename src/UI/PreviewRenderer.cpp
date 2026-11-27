@@ -136,7 +136,8 @@ void ComputeMvpMatrix(float *outM16) {
   float nearZ = 0.25f;
   float farZ = std::max(400.0f, g_MaxDim * 12.0f);
 
-  float dist = std::max(6.0f, g_MaxDim * 1.78f) / std::clamp(g_Zoom, 0.35f, 3.0f);
+  float dist =
+      std::max(6.0f, g_MaxDim * 1.78f) / std::clamp(g_Zoom, 0.35f, 3.0f);
   float cp = std::cos(g_Pitch);
   float sp = std::sin(g_Pitch);
   float cy = std::cos(g_Yaw);
@@ -243,6 +244,8 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
     if (name.find("pressure_plate") != std::string::npos ||
         name.find("carpet") != std::string::npos ||
         name.find("pink_petals") != std::string::npos ||
+        name.find("wildflowers") != std::string::npos ||
+        name.find("leaf_litter") != std::string::npos ||
         name.find("waterlily") != std::string::npos ||
         name.find("lily_pad") != std::string::npos ||
         name.find("snow_layer") != std::string::npos)
@@ -268,11 +271,26 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
     if (name.find("_fence") != std::string::npos &&
         name.find("fence_gate") == std::string::npos)
       return 9;
-    if (name.find("lantern") != std::string::npos)
+    if (name.find("lantern") != std::string::npos &&
+        name.find("sea_lantern") == std::string::npos &&
+        name.find("jack_o_lantern") == std::string::npos)
       return 10;
     if (name.find("vine") != std::string::npos ||
         name.find("glow_lichen") != std::string::npos)
       return 11;
+    if (name.find("grass_path") != std::string::npos ||
+        name.find("dirt_path") != std::string::npos ||
+        name.find("farmland") != std::string::npos)
+      return 12;
+    if (name.find("lightning_rod") != std::string::npos)
+      return 13;
+    if (name.find("end_rod") != std::string::npos)
+      return 14;
+    if (name == "minecraft:chain" || name == "chain" ||
+        name.find("iron_chain") != std::string::npos)
+      return 15;
+    if (name.find("torch") != std::string::npos)
+      return 16;
     return 0;
   };
 
@@ -519,12 +537,85 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
                  doc.palette[np].name.find("glass") != std::string::npos;
         };
 
+        auto pushSubQuad = [&](float x0, float y0, float z0, float x1, float y1,
+                               float z1, float x2, float y2, float z2, float x3,
+                               float y3, float z3, float shade,
+                               const BlockTextureRegistry::BlockFaceUVs &uv,
+                               float pu0, float pv0, float pu1, float pv1) {
+          bool useTex = atlasReady && uv.valid;
+          float baseR = useTex ? 255.0f : static_cast<float>(cr);
+          float baseG = useTex ? 255.0f : static_cast<float>(cg);
+          float baseB = useTex ? 255.0f : static_cast<float>(cb);
+          float tw = uv.u1 - uv.u0;
+          float th = uv.v1 - uv.v0;
+          float u0 = useTex ? (uv.u0 + (pu0 / 16.0f) * tw) : -1.0f;
+          float v0 = useTex ? (uv.v0 + (pv0 / 16.0f) * th) : 0.0f;
+          float u1 = useTex ? (uv.u0 + (pu1 / 16.0f) * tw) : -1.0f;
+          float v1 = useTex ? (uv.v0 + (pv1 / 16.0f) * th) : 0.0f;
+
+          auto mkV = [&](float vx, float vy, float vz, float tu,
+                         float tv) -> PreviewVertex {
+            return PreviewVertex{
+                vx,
+                vy,
+                vz,
+                tu,
+                tv,
+                static_cast<uint8_t>(std::clamp(baseR * shade, 0.0f, 255.0f)),
+                static_cast<uint8_t>(std::clamp(baseG * shade, 0.0f, 255.0f)),
+                static_cast<uint8_t>(std::clamp(baseB * shade, 0.0f, 255.0f)),
+                ca};
+          };
+
+          PreviewVertex p0 = mkV(x0, y0, z0, u0, v0);
+          PreviewVertex p1 = mkV(x1, y1, z1, u1, v0);
+          PreviewVertex p2 = mkV(x2, y2, z2, u1, v1);
+          PreviewVertex p3 = mkV(x3, y3, z3, u0, v1);
+          dst.push_back(p0);
+          dst.push_back(p1);
+          dst.push_back(p2);
+          dst.push_back(p0);
+          dst.push_back(p2);
+          dst.push_back(p3);
+        };
+
+        auto emitCuboid = [&](float fx0, float fy0, float fz0, float fx1,
+                              float fy1, float fz1, float su0, float sv0,
+                              float su1, float sv1, float tu0, float tv0,
+                              float tu1, float tv1,
+                              const BlockTextureRegistry::BlockFaceUVs &sideUv,
+                              const BlockTextureRegistry::BlockFaceUVs &topUv,
+                              const BlockTextureRegistry::BlockFaceUVs &botUv) {
+          float ax0 = bx0 + fx0 / 16.0f;
+          float ay0 = by0 + fy0 / 16.0f;
+          float az0 = bz0 + fz0 / 16.0f;
+          float ax1 = bx0 + fx1 / 16.0f;
+          float ay1 = by0 + fy1 / 16.0f;
+          float az1 = bz0 + fz1 / 16.0f;
+          pushSubQuad(ax0, ay1, az0, ax1, ay1, az0, ax1, ay1, az1, ax0, ay1,
+                      az1, 1.00f, topUv, tu0, tv0, tu1, tv1);
+          pushSubQuad(ax0, ay0, az1, ax1, ay0, az1, ax1, ay0, az0, ax0, ay0,
+                      az0, 0.55f, botUv, tu0, tv0, tu1, tv1);
+          pushSubQuad(ax0, ay1, az1, ax1, ay1, az1, ax1, ay0, az1, ax0, ay0,
+                      az1, 0.80f, sideUv, su0, sv0, su1, sv1);
+          pushSubQuad(ax1, ay1, az0, ax0, ay1, az0, ax0, ay0, az0, ax1, ay0,
+                      az0, 0.80f, sideUv, su0, sv0, su1, sv1);
+          pushSubQuad(ax1, ay1, az1, ax1, ay1, az0, ax1, ay0, az0, ax1, ay0,
+                      az1, 0.90f, sideUv, su0, sv0, su1, sv1);
+          pushSubQuad(ax0, ay1, az0, ax0, ay1, az1, ax0, ay0, az1, ax0, ay0,
+                      az0, 0.74f, sideUv, su0, sv0, su1, sv1);
+        };
+
         if (shape == 2) {
           emitBox(bx0, by0, bz0, bx1, by0 + 0.08f, bz1, false);
         } else if (shape == 3) {
           bool topSlab = false;
           for (const auto &st : doc.palette[pid].states) {
             if (st.key == "top_slot_bit" && st.intVal != 0)
+              topSlab = true;
+            if ((st.key == "vertical_half" ||
+                 st.key == "minecraft:vertical_half") &&
+                st.strVal == "top")
               topSlab = true;
           }
           if (topSlab)
@@ -562,17 +653,17 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
           emitBox(bx0 + 0.4375f, by0, bz0 + 0.4375f, bx1 - 0.4375f, by1,
                   bz1 - 0.4375f, false);
           if (cN)
-            emitBox(bx0 + 0.4375f, by0, bz0, bx1 - 0.4375f, by1,
-                    bz0 + 0.4375f, false);
+            emitBox(bx0 + 0.4375f, by0, bz0, bx1 - 0.4375f, by1, bz0 + 0.4375f,
+                    false);
           if (cS)
             emitBox(bx0 + 0.4375f, by0, bz0 + 0.5625f, bx1 - 0.4375f, by1, bz1,
                     false);
           if (cW)
-            emitBox(bx0, by0, bz0 + 0.4375f, bx0 + 0.4375f, by1,
-                    bz1 - 0.4375f, false);
+            emitBox(bx0, by0, bz0 + 0.4375f, bx0 + 0.4375f, by1, bz1 - 0.4375f,
+                    false);
           if (cE)
-            emitBox(bx0 + 0.5625f, by0, bz0 + 0.4375f, bx1, by1,
-                    bz1 - 0.4375f, false);
+            emitBox(bx0 + 0.5625f, by0, bz0 + 0.4375f, bx1, by1, bz1 - 0.4375f,
+                    false);
         } else if (shape == 6) {
           emitBox(bx0 + 0.46f, by0, bz0 + 0.46f, bx1 - 0.46f, by1, bz1 - 0.46f,
                   false);
@@ -602,18 +693,18 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
             emitBox(bx0, stepY0, bz0, bx1, stepY1, bz0 + 0.5f, false);
         } else if (shape == 8) {
           const auto &uv = faces.north.valid ? faces.north : faces.up;
-          pushQuad(bx0 + 0.25f, by1, bz0, bx0 + 0.25f, by1, bz1,
-                   bx0 + 0.25f, by0, bz1, bx0 + 0.25f, by0, bz0,
-                   1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
-          pushQuad(bx1 - 0.25f, by1, bz0, bx1 - 0.25f, by1, bz1,
-                   bx1 - 0.25f, by0, bz1, bx1 - 0.25f, by0, bz0,
-                   1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
-          pushQuad(bx0, by1, bz0 + 0.25f, bx1, by1, bz0 + 0.25f,
-                   bx1, by0, bz0 + 0.25f, bx0, by0, bz0 + 0.25f,
-                   1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
-          pushQuad(bx0, by1, bz1 - 0.25f, bx1, by1, bz1 - 0.25f,
-                   bx1, by0, bz1 - 0.25f, bx0, by0, bz1 - 0.25f,
-                   1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
+          pushQuad(bx0 + 0.25f, by1, bz0, bx0 + 0.25f, by1, bz1, bx0 + 0.25f,
+                   by0, bz1, bx0 + 0.25f, by0, bz0, 1.0f, 1.0f, 0.85f, 0.85f,
+                   0.92f, uv);
+          pushQuad(bx1 - 0.25f, by1, bz0, bx1 - 0.25f, by1, bz1, bx1 - 0.25f,
+                   by0, bz1, bx1 - 0.25f, by0, bz0, 1.0f, 1.0f, 0.85f, 0.85f,
+                   0.92f, uv);
+          pushQuad(bx0, by1, bz0 + 0.25f, bx1, by1, bz0 + 0.25f, bx1, by0,
+                   bz0 + 0.25f, bx0, by0, bz0 + 0.25f, 1.0f, 1.0f, 0.85f, 0.85f,
+                   0.88f, uv);
+          pushQuad(bx0, by1, bz1 - 0.25f, bx1, by1, bz1 - 0.25f, bx1, by0,
+                   bz1 - 0.25f, bx0, by0, bz1 - 0.25f, 1.0f, 1.0f, 0.85f, 0.85f,
+                   0.88f, uv);
         } else if (shape == 9) {
           bool cN = canConnWallFence(x, y, z - 1);
           bool cS = canConnWallFence(x, y, z + 1);
@@ -651,14 +742,94 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
             if (st.key == "hanging" && st.intVal != 0)
               hanging = true;
           }
-          float ly0 = hanging ? by0 + 0.0625f : by0;
-          emitBox(bx0 + 0.3125f, ly0, bz0 + 0.3125f, bx1 - 0.3125f,
-                  ly0 + 0.4375f, bz1 - 0.3125f, false);
-          emitBox(bx0 + 0.375f, ly0 + 0.4375f, bz0 + 0.375f, bx1 - 0.375f,
-                  ly0 + 0.5625f, bz1 - 0.375f, false);
-          if (hanging)
-            emitBox(bx0 + 0.4375f, ly0 + 0.5625f, bz0 + 0.4375f, bx1 - 0.4375f,
-                    by1, bz1 - 0.4375f, false);
+          float yOff = hanging ? 1.0f : 0.0f;
+          const auto &luv = faces.north.valid ? faces.north : faces.up;
+          emitCuboid(5.0f, yOff, 5.0f, 11.0f, yOff + 7.0f, 11.0f, 0.0f, 2.0f,
+                     6.0f, 9.0f, 0.0f, 9.0f, 6.0f, 15.0f, luv, luv, luv);
+          emitCuboid(6.0f, yOff + 7.0f, 6.0f, 10.0f, yOff + 9.0f, 10.0f, 1.0f,
+                     0.0f, 5.0f, 2.0f, 1.0f, 10.0f, 5.0f, 14.0f, luv, luv, luv);
+          if (hanging) {
+            pushSubQuad(bx0 + 6.5f / 16.0f, by0 + 16.0f / 16.0f,
+                        bz0 + 6.5f / 16.0f, bx0 + 9.5f / 16.0f,
+                        by0 + 16.0f / 16.0f, bz0 + 9.5f / 16.0f,
+                        bx0 + 9.5f / 16.0f, by0 + 10.0f / 16.0f,
+                        bz0 + 9.5f / 16.0f, bx0 + 6.5f / 16.0f,
+                        by0 + 10.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.92f, luv,
+                        11.0f, 1.0f, 14.0f, 7.0f);
+            pushSubQuad(bx0 + 9.5f / 16.0f, by0 + 16.0f / 16.0f,
+                        bz0 + 6.5f / 16.0f, bx0 + 6.5f / 16.0f,
+                        by0 + 16.0f / 16.0f, bz0 + 9.5f / 16.0f,
+                        bx0 + 6.5f / 16.0f, by0 + 10.0f / 16.0f,
+                        bz0 + 9.5f / 16.0f, bx0 + 9.5f / 16.0f,
+                        by0 + 10.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.88f, luv,
+                        11.0f, 1.0f, 14.0f, 7.0f);
+          } else {
+            pushSubQuad(bx0 + 6.5f / 16.0f, by0 + 11.0f / 16.0f,
+                        bz0 + 6.5f / 16.0f, bx0 + 9.5f / 16.0f,
+                        by0 + 11.0f / 16.0f, bz0 + 9.5f / 16.0f,
+                        bx0 + 9.5f / 16.0f, by0 + 9.0f / 16.0f,
+                        bz0 + 9.5f / 16.0f, bx0 + 6.5f / 16.0f,
+                        by0 + 9.0f / 16.0f, bz0 + 6.5f / 16.0f, 0.92f, luv,
+                        11.0f, 10.0f, 14.0f, 12.0f);
+          }
+        } else if (shape == 12) {
+          emitCuboid(0.0f, 0.0f, 0.0f, 16.0f, 15.0f, 16.0f, 0.0f, 1.0f, 16.0f,
+                     16.0f, 0.0f, 0.0f, 16.0f, 16.0f, faces.north, faces.up,
+                     faces.down);
+        } else if (shape == 13) {
+          const auto &ruv = faces.north.valid ? faces.north : faces.up;
+          int fdir = 1;
+          for (const auto &st : doc.palette[pid].states) {
+            if (st.key == "facing_direction")
+              fdir = st.intVal;
+          }
+          if (fdir == 0) {
+            emitCuboid(7.0f, 4.0f, 7.0f, 9.0f, 16.0f, 9.0f, 2.0f, 4.0f, 4.0f,
+                       16.0f, 4.0f, 0.0f, 6.0f, 2.0f, ruv, ruv, ruv);
+            emitCuboid(6.0f, 0.0f, 6.0f, 10.0f, 4.0f, 10.0f, 0.0f, 0.0f, 4.0f,
+                       4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
+          } else if (fdir == 2 || fdir == 3) {
+            emitCuboid(7.0f, 7.0f, (fdir == 2) ? 4.0f : 0.0f, 9.0f, 9.0f,
+                       (fdir == 2) ? 16.0f : 12.0f, 2.0f, 4.0f, 4.0f, 16.0f,
+                       2.0f, 4.0f, 4.0f, 16.0f, ruv, ruv, ruv);
+            emitCuboid(6.0f, 6.0f, (fdir == 2) ? 0.0f : 12.0f, 10.0f, 10.0f,
+                       (fdir == 2) ? 4.0f : 16.0f, 0.0f, 0.0f, 4.0f, 4.0f,
+                       4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
+          } else if (fdir == 4 || fdir == 5) {
+            emitCuboid((fdir == 4) ? 4.0f : 0.0f, 7.0f, 7.0f,
+                       (fdir == 4) ? 16.0f : 12.0f, 9.0f, 9.0f, 2.0f, 4.0f,
+                       4.0f, 16.0f, 2.0f, 4.0f, 4.0f, 16.0f, ruv, ruv, ruv);
+            emitCuboid((fdir == 4) ? 0.0f : 12.0f, 6.0f, 6.0f,
+                       (fdir == 4) ? 4.0f : 16.0f, 10.0f, 10.0f, 0.0f, 0.0f,
+                       4.0f, 4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
+          } else {
+            emitCuboid(7.0f, 0.0f, 7.0f, 9.0f, 12.0f, 9.0f, 2.0f, 4.0f, 4.0f,
+                       16.0f, 4.0f, 0.0f, 6.0f, 2.0f, ruv, ruv, ruv);
+            emitCuboid(6.0f, 12.0f, 6.0f, 10.0f, 16.0f, 10.0f, 0.0f, 0.0f, 4.0f,
+                       4.0f, 4.0f, 0.0f, 8.0f, 4.0f, ruv, ruv, ruv);
+          }
+        } else if (shape == 14) {
+          const auto &ruv = faces.north.valid ? faces.north : faces.up;
+          emitCuboid(6.0f, 0.0f, 6.0f, 10.0f, 1.0f, 10.0f, 2.0f, 14.0f, 6.0f,
+                     15.0f, 2.0f, 12.0f, 6.0f, 16.0f, ruv, ruv, ruv);
+          emitCuboid(7.0f, 1.0f, 7.0f, 9.0f, 16.0f, 9.0f, 2.0f, 0.0f, 4.0f,
+                     15.0f, 0.0f, 0.0f, 2.0f, 2.0f, ruv, ruv, ruv);
+        } else if (shape == 15) {
+          const auto &cuv = faces.north.valid ? faces.north : faces.up;
+          pushSubQuad(bx0 + 6.5f / 16.0f, by1, bz0 + 6.5f / 16.0f,
+                      bx0 + 9.5f / 16.0f, by1, bz0 + 9.5f / 16.0f,
+                      bx0 + 9.5f / 16.0f, by0, bz0 + 9.5f / 16.0f,
+                      bx0 + 6.5f / 16.0f, by0, bz0 + 6.5f / 16.0f, 0.92f, cuv,
+                      0.0f, 0.0f, 3.0f, 16.0f);
+          pushSubQuad(bx0 + 9.5f / 16.0f, by1, bz0 + 6.5f / 16.0f,
+                      bx0 + 6.5f / 16.0f, by1, bz0 + 9.5f / 16.0f,
+                      bx0 + 6.5f / 16.0f, by0, bz0 + 9.5f / 16.0f,
+                      bx0 + 9.5f / 16.0f, by0, bz0 + 6.5f / 16.0f, 0.88f, cuv,
+                      3.0f, 0.0f, 6.0f, 16.0f);
+        } else if (shape == 16) {
+          const auto &tuv = faces.north.valid ? faces.north : faces.up;
+          emitCuboid(7.0f, 0.0f, 7.0f, 9.0f, 10.0f, 9.0f, 7.0f, 6.0f, 9.0f,
+                     16.0f, 7.0f, 6.0f, 9.0f, 8.0f, tuv, tuv, tuv);
         } else if (shape == 11) {
           const auto &uv = faces.north.valid ? faces.north : faces.up;
           bool placed = false;
@@ -696,8 +867,8 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
             uint16_t nUp = getBlk(x, y + 1, z);
             float topY = (isWater && nUp != pid) ? (by1 - 0.125f) : by1;
             if (nUp != pid)
-              pushQuad(bx0, topY, bz0, bx1, topY, bz0, bx1, topY, bz1, bx0, topY,
-                       bz1, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, faces.up);
+              pushQuad(bx0, topY, bz0, bx1, topY, bz0, bx1, topY, bz1, bx0,
+                       topY, bz1, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, faces.up);
             if (getBlk(x, y - 1, z) != pid)
               pushQuad(bx0, by0, bz1, bx1, by0, bz1, bx1, by0, bz0, bx0, by0,
                        bz0, 0.9f, 0.9f, 0.9f, 0.9f, 0.6f, faces.down);
@@ -820,7 +991,7 @@ void UploadDx12Buffers() {
   g_MeshDirty = false;
 }
 
-}
+} // namespace
 
 void EnsureDX11(ID3D11Device *device) {
   std::lock_guard<std::mutex> lock(g_Mutex);
@@ -1209,6 +1380,7 @@ void FlushRenderDX11(ID3D11DeviceContext *ctx) {
   std::lock_guard<std::mutex> lock(g_Mutex);
   if (!ctx || !g_IsDx11 || !g_GpuReady)
     return;
+  BlockTextureRegistry::SyncGpuDX11(ctx);
   if (g_MeshDirty)
     UploadDx11Buffers();
   if (!g_RenderDirty)
@@ -1268,6 +1440,7 @@ void FlushRenderDX12(ID3D12GraphicsCommandList *cmd) {
   std::lock_guard<std::mutex> lock(g_Mutex);
   if (!cmd || !g_IsDx12 || !g_GpuReady)
     return;
+  BlockTextureRegistry::SyncGpuDX12(cmd);
   if (g_MeshDirty)
     UploadDx12Buffers();
   if (!g_RenderDirty)

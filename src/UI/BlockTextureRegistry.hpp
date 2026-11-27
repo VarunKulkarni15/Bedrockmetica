@@ -30,6 +30,8 @@ struct BlockFaces {
 void EnsureDX11(ID3D11Device *device);
 void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
                 UiAssets::SrvAllocFn allocFn);
+void SyncGpuDX11(ID3D11DeviceContext *ctx);
+void SyncGpuDX12(ID3D12GraphicsCommandList *cmd);
 void Shutdown();
 
 bool IsReady();

@@ -56,8 +56,12 @@ static std::unordered_map<std::string, TerrainTexSpec> g_TerrainJsonMap;
 static std::vector<TerrainTexSpec> g_ExtraArraySpecs;
 static std::unordered_map<std::string, BlockFaces> g_ResolvedCache;
 
+static ID3D11Texture2D *g_Dx11Tex = nullptr;
 static ID3D11ShaderResourceView *g_Dx11Srv = nullptr;
 static ID3D12Resource *g_Dx12Tex = nullptr;
+static ID3D12Resource *g_Dx12UploadBuf = nullptr;
+static D3D12_PLACED_SUBRESOURCE_FOOTPRINT g_Dx12Footprint = {};
+static bool g_AtlasDirty = false;
 static ImTextureID g_AtlasTexId = 0;
 
 std::string ToLowerStr(const std::string &s) {
@@ -623,8 +627,22 @@ static std::vector<BrarchiveFile> g_Archives;
 static std::vector<std::filesystem::path> g_Packs;
 static IWICImagingFactory *g_Wic = nullptr;
 
+static bool ShouldBiomeTint(const std::string &nameLow);
+static uint32_t DefaultBiomeTintRgb(const std::string &nameLow);
+
 BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
                             bool hasTint) {
+  std::string baseName = texPathRaw;
+  auto slashPos = baseName.find_last_of('/');
+  if (slashPos != std::string::npos)
+    baseName = baseName.substr(slashPos + 1);
+  baseName = ToLowerStr(baseName);
+
+  if (!hasTint && ShouldBiomeTint(baseName)) {
+    hasTint = true;
+    tintRgb = DefaultBiomeTintRgb(baseName);
+  }
+
   std::string key = ToLowerStr(texPathRaw);
   if (hasTint)
     key += "#tint";
@@ -634,12 +652,6 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
 
   if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
     return {};
-
-  std::string baseName = texPathRaw;
-  auto slashPos = baseName.find_last_of('/');
-  if (slashPos != std::string::npos)
-    baseName = baseName.substr(slashPos + 1);
-  baseName = ToLowerStr(baseName);
 
   std::vector<uint8_t> rawBytes;
   for (const std::string &ext : {".png", ".tga"}) {
@@ -734,12 +746,14 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
       static_cast<float>((ty + 1) * kTileSize) / static_cast<float>(kAtlasSize);
   uv.valid = true;
   g_TileCache[key] = uv;
+  g_AtlasDirty = true;
   return uv;
 }
 
 static bool ShouldBiomeTint(const std::string &nameLow) {
-  if (nameLow == "grass_top" || nameLow == "tallgrass" || nameLow == "fern" ||
-      nameLow == "vine" || nameLow == "waterlily" ||
+  if (nameLow == "grass_top" || nameLow == "tallgrass" ||
+      nameLow == "short_grass" || nameLow == "tall_grass" ||
+      nameLow == "fern" || nameLow == "vine" || nameLow == "waterlily" ||
       nameLow == "double_plant_grass_bottom" ||
       nameLow == "double_plant_grass_top" ||
       nameLow.find("water_still") != std::string::npos ||
@@ -971,8 +985,10 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "double_plant_rose_top";
   if (s == "pink_petals")
     return "pink_petals";
-  if (s == "grass_path")
+  if (s == "grass_path" || s == "dirt_path")
     return "grass_path_side";
+  if (s == "iron_chain")
+    return "chain";
   if (s == "farmland")
     return "farmland_wet";
   return s;
@@ -993,20 +1009,19 @@ void EnsureDX11(ID3D11Device *device) {
   desc.ArraySize = 1;
   desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
   desc.SampleDesc.Count = 1;
-  desc.Usage = D3D11_USAGE_IMMUTABLE;
+  desc.Usage = D3D11_USAGE_DEFAULT;
   desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
   D3D11_SUBRESOURCE_DATA init = {};
   init.pSysMem = g_AtlasRgba.data();
   init.SysMemPitch = kAtlasSize * 4;
 
-  ID3D11Texture2D *tex = nullptr;
-  if (FAILED(device->CreateTexture2D(&desc, &init, &tex)))
+  if (FAILED(device->CreateTexture2D(&desc, &init, &g_Dx11Tex)))
     return;
-  HRESULT hr = device->CreateShaderResourceView(tex, nullptr, &g_Dx11Srv);
-  tex->Release();
+  HRESULT hr = device->CreateShaderResourceView(g_Dx11Tex, nullptr, &g_Dx11Srv);
   if (SUCCEEDED(hr) && g_Dx11Srv) {
     g_AtlasTexId = reinterpret_cast<ImTextureID>(g_Dx11Srv);
+    g_AtlasDirty = false;
     g_GpuReady = true;
   }
 }
@@ -1051,9 +1066,8 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
   }
 
   UINT64 uploadBytes = 0;
-  D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
-  device->GetCopyableFootprints(&texDesc, 0, 1, 0, &footprint, nullptr, nullptr,
-                                &uploadBytes);
+  device->GetCopyableFootprints(&texDesc, 0, 1, 0, &g_Dx12Footprint, nullptr,
+                                nullptr, &uploadBytes);
 
   D3D12_HEAP_PROPERTIES upHeap = {};
   upHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -1066,11 +1080,10 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
   upDesc.SampleDesc.Count = 1;
   upDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-  ID3D12Resource *uploadBuf = nullptr;
   if (FAILED(device->CreateCommittedResource(
           &upHeap, D3D12_HEAP_FLAG_NONE, &upDesc,
           D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-          IID_PPV_ARGS(&uploadBuf)))) {
+          IID_PPV_ARGS(&g_Dx12UploadBuf)))) {
     g_Dx12Tex->Release();
     g_Dx12Tex = nullptr;
     cmd->Release();
@@ -1080,13 +1093,16 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
 
   uint8_t *mapped = nullptr;
   D3D12_RANGE rr{0, 0};
-  if (SUCCEEDED(uploadBuf->Map(0, &rr, reinterpret_cast<void **>(&mapped)))) {
+  if (SUCCEEDED(
+          g_Dx12UploadBuf->Map(0, &rr, reinterpret_cast<void **>(&mapped)))) {
     for (int row = 0; row < kAtlasSize; ++row) {
-      std::memcpy(mapped + static_cast<size_t>(row) * footprint.Footprint.RowPitch,
+      std::memcpy(mapped +
+                      static_cast<size_t>(row) *
+                          g_Dx12Footprint.Footprint.RowPitch,
                   g_AtlasRgba.data() + static_cast<size_t>(row) * kAtlasSize * 4,
                   kAtlasSize * 4);
     }
-    uploadBuf->Unmap(0, nullptr);
+    g_Dx12UploadBuf->Unmap(0, nullptr);
   }
 
   D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
@@ -1095,9 +1111,9 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
   dstLoc.SubresourceIndex = 0;
 
   D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
-  srcLoc.pResource = uploadBuf;
+  srcLoc.pResource = g_Dx12UploadBuf;
   srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  srcLoc.PlacedFootprint = footprint;
+  srcLoc.PlacedFootprint = g_Dx12Footprint;
 
   cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
 
@@ -1127,7 +1143,6 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
     fence->Release();
   }
 
-  uploadBuf->Release();
   cmd->Release();
   alloc->Release();
 
@@ -1143,7 +1158,62 @@ void EnsureDX12(ID3D12Device *device, ID3D12CommandQueue *queue,
   device->CreateShaderResourceView(g_Dx12Tex, &srvDesc, cpuH);
 
   g_AtlasTexId = static_cast<ImTextureID>(gpuH.ptr);
+  g_AtlasDirty = false;
   g_GpuReady = true;
+}
+
+void SyncGpuDX11(ID3D11DeviceContext *ctx) {
+  std::lock_guard<std::mutex> lock(g_RegMutex);
+  if (!ctx || !g_Dx11Tex || !g_AtlasDirty)
+    return;
+  ctx->UpdateSubresource(g_Dx11Tex, 0, nullptr, g_AtlasRgba.data(),
+                         kAtlasSize * 4, 0);
+  g_AtlasDirty = false;
+}
+
+void SyncGpuDX12(ID3D12GraphicsCommandList *cmd) {
+  std::lock_guard<std::mutex> lock(g_RegMutex);
+  if (!cmd || !g_Dx12Tex || !g_Dx12UploadBuf || !g_AtlasDirty)
+    return;
+  uint8_t *mapped = nullptr;
+  D3D12_RANGE rr{0, 0};
+  if (SUCCEEDED(
+          g_Dx12UploadBuf->Map(0, &rr, reinterpret_cast<void **>(&mapped)))) {
+    for (int row = 0; row < kAtlasSize; ++row) {
+      std::memcpy(mapped +
+                      static_cast<size_t>(row) *
+                          g_Dx12Footprint.Footprint.RowPitch,
+                  g_AtlasRgba.data() + static_cast<size_t>(row) * kAtlasSize * 4,
+                  kAtlasSize * 4);
+    }
+    g_Dx12UploadBuf->Unmap(0, nullptr);
+  }
+
+  D3D12_RESOURCE_BARRIER bar = {};
+  bar.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  bar.Transition.pResource = g_Dx12Tex;
+  bar.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+  bar.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+  bar.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  cmd->ResourceBarrier(1, &bar);
+
+  D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+  dstLoc.pResource = g_Dx12Tex;
+  dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  dstLoc.SubresourceIndex = 0;
+
+  D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+  srcLoc.pResource = g_Dx12UploadBuf;
+  srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  srcLoc.PlacedFootprint = g_Dx12Footprint;
+
+  cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+
+  bar.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  bar.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+  cmd->ResourceBarrier(1, &bar);
+
+  g_AtlasDirty = false;
 }
 
 void Shutdown() {
@@ -1151,6 +1221,14 @@ void Shutdown() {
   if (g_Dx11Srv) {
     g_Dx11Srv->Release();
     g_Dx11Srv = nullptr;
+  }
+  if (g_Dx11Tex) {
+    g_Dx11Tex->Release();
+    g_Dx11Tex = nullptr;
+  }
+  if (g_Dx12UploadBuf) {
+    g_Dx12UploadBuf->Release();
+    g_Dx12UploadBuf = nullptr;
   }
   if (g_Dx12Tex) {
     g_Dx12Tex->Release();
