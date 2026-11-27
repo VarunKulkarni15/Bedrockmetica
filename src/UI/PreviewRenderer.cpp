@@ -1384,6 +1384,19 @@ void Shutdown() {
   g_GpuReady = false;
 }
 
+static bool TryGetD3D12DescSeh(ID3D12Resource *res,
+                                D3D12_RESOURCE_DESC *outDesc) {
+  __try {
+    void **vt = *reinterpret_cast<void ***>(res);
+    if (!vt)
+      return false;
+    *outDesc = res->GetDesc();
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
 static bool EnsureLiveAtlasSrvDX12() {
   if (!g_Dx12Dev || !g_Dx12SrvAlloc)
     return false;
@@ -1391,7 +1404,9 @@ static bool EnsureLiveAtlasSrvDX12() {
       BedrockGame::GetLiveTerrainAtlasD3D12Resource());
   if (!res)
     return false;
-  D3D12_RESOURCE_DESC desc = res->GetDesc();
+  D3D12_RESOURCE_DESC desc = {};
+  if (!TryGetD3D12DescSeh(res, &desc))
+    return false;
   if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
       desc.Width < 256 || desc.Height < 256)
     return false;

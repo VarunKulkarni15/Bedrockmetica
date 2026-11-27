@@ -1573,22 +1573,20 @@ static uint16_t ResolveAtlasHandleSeh(void *tgPlus18,
   }
 }
 
-static void *LookupBgfxTextureD3D12Seh(void *sCtx, uint16_t handle) {
+static void *LookupBgfxTextureD3D12Seh(void *sCtx, uint16_t handle,
+                                       bool useStride80) {
   __try {
     uintptr_t renderCtx = *reinterpret_cast<const uintptr_t *>(
         reinterpret_cast<uintptr_t>(sCtx) + 0x19F58);
     if (!IsValidReadablePtr(reinterpret_cast<void *>(renderCtx)))
       return nullptr;
 
-    void *resA = *reinterpret_cast<void *const *>(
-        renderCtx + 0x9B2178 + static_cast<size_t>(handle) * 0x80);
-    if (IsValidReadablePtr(resA))
-      return resA;
-
-    void *resB = *reinterpret_cast<void *const *>(
-        renderCtx + 0x93A178 + static_cast<size_t>(handle) * 0x78);
-    if (IsValidReadablePtr(resB))
-      return resB;
+    uintptr_t addr = useStride80
+                         ? (renderCtx + 0x9B2178 + static_cast<size_t>(handle) * 0x80)
+                         : (renderCtx + 0x93A178 + static_cast<size_t>(handle) * 0x78);
+    void *res = *reinterpret_cast<void *const *>(addr);
+    if (IsValidReadablePtr(res))
+      return res;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
   }
   return nullptr;
@@ -1694,15 +1692,20 @@ bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
   fakeVt[4] = reinterpret_cast<void *>(&FakeBsGetExtraBlock);
   *reinterpret_cast<void ***>(fakeBs) = fakeVt;
 
-  if (!InitStandaloneTessellator() || !InitStandaloneBlockTessellator(fakeBs))
+  if (!InitStandaloneTessellator() || !InitStandaloneBlockTessellator(fakeBs)) {
+    Logger::warn("Native FakeWorld: Tessellator/BlockTessellator init failed.",
+                 "BedrockGame");
     return false;
+  }
 
+  Logger::info("Native FakeWorld: starting tessellation pass...", "BedrockGame");
   tls_FakeWorld = &fw;
   bool ok = TessellateFakeWorldPass(g_StandaloneBtBuf.data(),
                                     g_StandaloneTessBuf.data(), fw, outMesh);
   tls_FakeWorld = nullptr;
 
   outMesh.valid = ok && (!outMesh.opaqueTris.empty() || !outMesh.transTris.empty());
+  Logger::info("Native FakeWorld: tessellation finished.", "BedrockGame");
   return outMesh.valid;
 }
 
@@ -1731,7 +1734,10 @@ void *GetLiveTerrainAtlasD3D12Resource() {
   if (handle == 0xFFFF || handle >= 4096)
     return nullptr;
 
-  return LookupBgfxTextureD3D12Seh(sCtx, handle);
+  void *res = LookupBgfxTextureD3D12Seh(sCtx, handle, false);
+  if (!res)
+    res = LookupBgfxTextureD3D12Seh(sCtx, handle, true);
+  return res;
 }
 
 }
