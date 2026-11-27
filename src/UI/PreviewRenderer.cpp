@@ -1435,12 +1435,17 @@ static bool EnsureLiveAtlasSrvDX12() {
 void SetStructurePath(const std::string &path, const std::string &format) {
   std::lock_guard<std::mutex> lock(g_Mutex);
   bool atlasNow = BlockTextureRegistry::IsReady();
-  bool inWorldNow =
-      (g_IsDx12 && BedrockGame::GetBlockSource() != nullptr &&
-       BedrockGame::GetLiveTerrainAtlasD3D12Resource() != nullptr);
+  bool hasBs = (BedrockGame::GetBlockSource() != nullptr);
+  void *liveRes =
+      (g_IsDx12 && hasBs) ? BedrockGame::GetLiveTerrainAtlasD3D12Resource()
+                          : nullptr;
+  bool inWorldNow = (g_IsDx12 && hasBs && liveRes != nullptr);
   if (path == g_LoadedPath && (atlasNow == g_WasAtlasReady) &&
       (inWorldNow == g_WasInWorld))
     return;
+  Logger::info(inWorldNow ? "PreviewRenderer: SetStructurePath inWorldNow=true"
+                          : "PreviewRenderer: SetStructurePath inWorldNow=false",
+               "PreviewRenderer");
   g_WasAtlasReady = atlasNow;
   g_WasInWorld = inWorldNow;
   g_LoadedPath = path;
@@ -1486,6 +1491,8 @@ void SetStructurePath(const std::string &path, const std::string &format) {
         return;
       }
     }
+    Logger::info("PreviewRenderer: falling back to BuildMeshFromDoc...",
+                 "PreviewRenderer");
     BuildMeshFromDoc(doc);
   }
 }

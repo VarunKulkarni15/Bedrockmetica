@@ -1731,16 +1731,30 @@ bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
   return outMesh.valid;
 }
 
+static void *ReadPtrSeh(void *const *pp) {
+  __try {
+    return *pp;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return nullptr;
+  }
+}
+
 void *GetLiveTerrainAtlasD3D12Resource() {
   EnsureNativeSigs();
-  if (!g_BgfxCtxPtr || !IsValidReadablePtr(g_BgfxCtxPtr))
+  if (!g_BgfxCtxPtr || !IsValidReadablePtr(g_BgfxCtxPtr)) {
+    Logger::info("LiveAtlas: g_BgfxCtxPtr null or invalid.", "BedrockGame");
     return nullptr;
+  }
 
-  void *sCtx = *g_BgfxCtxPtr;
-  if (!IsValidReadablePtr(sCtx))
+  void *sCtx = ReadPtrSeh(g_BgfxCtxPtr);
+  if (!IsValidReadablePtr(sCtx)) {
+    Logger::info("LiveAtlas: sCtx null or invalid.", "BedrockGame");
     return nullptr;
+  }
 
   void *ci = GetClientInstance();
+  Logger::info(ci ? "LiveAtlas: ClientInstance ok." : "LiveAtlas: ClientInstance null.",
+               "BedrockGame");
   void *tgPlus18 = FindTextureGroupFromClientSeh(ci);
   if (!tgPlus18 || !g_TexGroupGetTex) {
     Logger::info("LiveAtlas: TextureGroup or getTexture missing.", "BedrockGame");
