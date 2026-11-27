@@ -17,6 +17,7 @@
 #include "../Core/CaptureManager.hpp"
 #include "../SDK/BedrockGame.hpp"
 #include "../UI/BlockTextureRegistry.hpp"
+#include "../UI/PreviewRenderer.hpp"
 #include "../UI/SchematicMenu.hpp"
 #include "../UI/UiAssets.hpp"
 #include "../Utils/ConfigManager.hpp"
@@ -1633,6 +1634,7 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
   if (g_CurrentAPI == GraphicsAPI::D3D11 && g_pd3d11Context && g_pd3d11RTV) {
     UiAssets::EnsureDX11(g_pd3d11Device);
     BlockTextureRegistry::EnsureDX11(g_pd3d11Device);
+    PreviewRenderer::EnsureDX11(g_pd3d11Device);
 
     {
       OverlayCallScope scope;
@@ -1651,6 +1653,7 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
     RenderOverlayFrame(width, height);
 
     ImGui::Render();
+    PreviewRenderer::FlushRenderDX11(g_pd3d11Context);
     g_pd3d11Context->OMSetRenderTargets(1, &g_pd3d11RTV, nullptr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
   } else if (g_CurrentAPI == GraphicsAPI::D3D12 && g_pd3d12CommandQueue &&
@@ -1658,6 +1661,7 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
     UiAssets::EnsureDX12(g_pd3d12Device, g_pd3d12CommandQueue, AllocD3D12Srv);
     BlockTextureRegistry::EnsureDX12(g_pd3d12Device, g_pd3d12CommandQueue,
                                      AllocD3D12Srv);
+    PreviewRenderer::EnsureDX12(g_pd3d12Device, AllocD3D12Srv);
 
     auto *sc3 = reinterpret_cast<IDXGISwapChain3 *>(pSwapChain);
     UINT idx = sc3->GetCurrentBackBufferIndex();
@@ -1709,6 +1713,10 @@ static HRESULT __stdcall hkPresent(IDXGISwapChain *pSwapChain,
     RenderOverlayFrame(width, height);
 
     ImGui::Render();
+    PreviewRenderer::FlushRenderDX12(g_pd3d12CmdList);
+    g_pd3d12CmdList->OMSetRenderTargets(1, &g_d3d12RtvHandles[idx], FALSE,
+                                        nullptr);
+    g_pd3d12CmdList->SetDescriptorHeaps(1, &g_pd3d12SrvDescHeap);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), g_pd3d12CmdList);
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -1770,6 +1778,7 @@ bool Initialize() {
 void Shutdown() {
   RemoveWndProcHook();
   MH_DisableHook(MH_ALL_HOOKS);
+  PreviewRenderer::Shutdown();
   BlockTextureRegistry::Shutdown();
   UiAssets::Shutdown();
 
