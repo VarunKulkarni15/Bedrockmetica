@@ -2,6 +2,7 @@
 #include "../Core/SchematicDocument.hpp"
 #include "../IO/BmetCodec.hpp"
 #include "../IO/McStructureCodec.hpp"
+#include "../SDK/BedrockGame.hpp"
 #include "../Utils/Logger.hpp"
 #include "BlockTextureRegistry.hpp"
 #include "GeneratedBlockModels.hpp"
@@ -45,6 +46,14 @@ static float g_Pitch = 0.56f;
 static float g_Zoom = 1.0f;
 static float g_Aspect = static_cast<float>(kRtWidth) / kRtHeight;
 static bool g_WasAtlasReady = false;
+static bool g_WasInWorld = false;
+static bool g_UsingLiveAtlas = false;
+
+static UiAssets::SrvAllocFn g_Dx12SrvAlloc = nullptr;
+static D3D12_CPU_DESCRIPTOR_HANDLE g_LiveAtlasCpu = {};
+static D3D12_GPU_DESCRIPTOR_HANDLE g_LiveAtlasGpu = {};
+static bool g_LiveAtlasSlotAlloc = false;
+static ID3D12Resource *g_LiveAtlasResBound = nullptr;
 
 static const char *kVsSrc = R"(
 cbuffer CB : register(b0) {
@@ -1042,7 +1051,7 @@ void UploadDx12Buffers() {
   g_MeshDirty = false;
 }
 
-} // namespace
+}
 
 void EnsureDX11(ID3D11Device *device) {
   std::lock_guard<std::mutex> lock(g_Mutex);
@@ -1157,6 +1166,7 @@ void EnsureDX12(ID3D12Device *device, UiAssets::SrvAllocFn allocFn) {
   if (!device || !allocFn || g_GpuReady)
     return;
   g_Dx12Dev = device;
+  g_Dx12SrvAlloc = allocFn;
   g_IsDx12 = true;
 
   D3D12_HEAP_PROPERTIES defHeap = {};
@@ -1365,21 +1375,64 @@ void Shutdown() {
   rel(g_Dx12DepthTex);
   rel(g_Dx12ColorTex);
   g_Dx12Dev = nullptr;
+  g_Dx12SrvAlloc = nullptr;
+  g_LiveAtlasSlotAlloc = false;
+  g_LiveAtlasResBound = nullptr;
+  g_UsingLiveAtlas = false;
 
   g_PreviewTexId = 0;
   g_GpuReady = false;
 }
 
+static bool EnsureLiveAtlasSrvDX12() {
+  if (!g_Dx12Dev || !g_Dx12SrvAlloc)
+    return false;
+  auto *res = reinterpret_cast<ID3D12Resource *>(
+      BedrockGame::GetLiveTerrainAtlasD3D12Resource());
+  if (!res)
+    return false;
+  D3D12_RESOURCE_DESC desc = res->GetDesc();
+  if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      desc.Width < 256 || desc.Height < 256)
+    return false;
+  if (!g_LiveAtlasSlotAlloc) {
+    g_Dx12SrvAlloc(&g_LiveAtlasCpu, &g_LiveAtlasGpu);
+    g_LiveAtlasSlotAlloc = true;
+    g_LiveAtlasResBound = nullptr;
+  }
+  if (res != g_LiveAtlasResBound) {
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    DXGI_FORMAT fmt = desc.Format;
+    if (fmt == DXGI_FORMAT_R8G8B8A8_TYPELESS)
+      fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
+    else if (fmt == DXGI_FORMAT_B8G8R8A8_TYPELESS)
+      fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
+    srvDesc.Format = fmt;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MipLevels = desc.MipLevels ? desc.MipLevels : 1;
+    g_Dx12Dev->CreateShaderResourceView(res, &srvDesc, g_LiveAtlasCpu);
+    g_LiveAtlasResBound = res;
+  }
+  return true;
+}
+
 void SetStructurePath(const std::string &path, const std::string &format) {
   std::lock_guard<std::mutex> lock(g_Mutex);
   bool atlasNow = BlockTextureRegistry::IsReady();
-  if (path == g_LoadedPath && (atlasNow == g_WasAtlasReady))
+  bool inWorldNow =
+      (g_IsDx12 && BedrockGame::GetBlockSource() != nullptr &&
+       BedrockGame::GetLiveTerrainAtlasD3D12Resource() != nullptr);
+  if (path == g_LoadedPath && (atlasNow == g_WasAtlasReady) &&
+      (inWorldNow == g_WasInWorld))
     return;
   g_WasAtlasReady = atlasNow;
+  g_WasInWorld = inWorldNow;
   g_LoadedPath = path;
   g_OpaqueVerts.clear();
   g_TransVerts.clear();
   g_HasMesh = false;
+  g_UsingLiveAtlas = false;
   g_MeshDirty = true;
   g_RenderDirty = true;
   if (path.empty())
@@ -1390,6 +1443,32 @@ void SetStructurePath(const std::string &path, const std::string &format) {
                 ? Bedrockmetica::BmetCodec::LoadFromFile(path, doc)
                 : Bedrockmetica::McStructureCodec::LoadFile(path, doc);
   if (ok) {
+    if (inWorldNow) {
+      BedrockGame::NativePreviewMesh nativeMesh;
+      if (BedrockGame::BuildNativePreviewMesh(doc, nativeMesh) &&
+          nativeMesh.valid) {
+        g_MaxDim =
+            static_cast<float>(std::max({doc.width, doc.height, doc.depth, 4}));
+        auto convertVerts = [](const std::vector<BedrockGame::NativeQuadVertex> &src,
+                               std::vector<PreviewVertex> &dst) {
+          dst.reserve(src.size());
+          for (const auto &v : src) {
+            uint8_t r = static_cast<uint8_t>(v.abgr & 0xFFu);
+            uint8_t g = static_cast<uint8_t>((v.abgr >> 8) & 0xFFu);
+            uint8_t b = static_cast<uint8_t>((v.abgr >> 16) & 0xFFu);
+            uint8_t a = static_cast<uint8_t>((v.abgr >> 24) & 0xFFu);
+            dst.push_back(PreviewVertex{v.x, v.y, v.z, v.u, v.v, r, g, b, a});
+          }
+        };
+        convertVerts(nativeMesh.opaqueTris, g_OpaqueVerts);
+        convertVerts(nativeMesh.transTris, g_TransVerts);
+        g_HasMesh = (!g_OpaqueVerts.empty() || !g_TransVerts.empty());
+        g_UsingLiveAtlas = true;
+        g_MeshDirty = true;
+        g_RenderDirty = true;
+        return;
+      }
+    }
     BuildMeshFromDoc(doc);
   }
 }
@@ -1525,7 +1604,9 @@ void FlushRenderDX12(ID3D12GraphicsCommandList *cmd) {
     ComputeMvpMatrix(cb.mvp);
     cmd->SetGraphicsRoot32BitConstants(0, 16, cb.mvp, 0);
 
-    if (BlockTextureRegistry::IsReady()) {
+    if (g_UsingLiveAtlas && EnsureLiveAtlasSrvDX12()) {
+      cmd->SetGraphicsRootDescriptorTable(1, g_LiveAtlasGpu);
+    } else if (BlockTextureRegistry::IsReady()) {
       D3D12_GPU_DESCRIPTOR_HANDLE srvH{
           static_cast<UINT64>(BlockTextureRegistry::GetAtlasTexId())};
       cmd->SetGraphicsRootDescriptorTable(1, srvH);

@@ -49,6 +49,22 @@ const void *GetBlockPtr(void *blockSource, int32_t x, int32_t y, int32_t z);
 bool ReadBlockSerialization(const void *blockPtr, std::string &outName,
                             std::vector<Bedrockmetica::BlockStateProp> &outProps);
 
+struct NativeQuadVertex {
+  float x, y, z;
+  float u, v;
+  uint32_t abgr;
+};
+
+struct NativePreviewMesh {
+  std::vector<NativeQuadVertex> opaqueTris;
+  std::vector<NativeQuadVertex> transTris;
+  bool valid = false;
+};
+
+bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
+                            NativePreviewMesh &outMesh);
+void *GetLiveTerrainAtlasD3D12Resource();
+
 void DrawWireBox3D(float minX, float minY, float minZ, float maxX, float maxY,
                    float maxZ, float r, float g, float b, float a);
 void DrawFilledBox3D(float minX, float minY, float minZ, float maxX, float maxY,

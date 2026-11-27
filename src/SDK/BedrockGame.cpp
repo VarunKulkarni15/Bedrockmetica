@@ -968,4 +968,770 @@ bool ProjectLine3D(float x0, float y0, float z0, float x1, float y1, float z1,
   return true;
 }
 
+namespace {
+
+struct NativeMsvcString {
+  union {
+    char buf[16];
+    const char *ptr;
+  } bx;
+  size_t size;
+  size_t cap;
+};
+
+struct HashedStringRaw {
+  uint64_t hash;
+  NativeMsvcString str;
+  const void *lastMatch;
+};
+
+struct ResourceLocationRaw {
+  uint64_t type;
+  NativeMsvcString path;
+  uint64_t pathHash;
+  uint64_t fullHash;
+};
+
+static uint64_t ComputeFnv1a64(const char *s, size_t len) {
+  uint64_t h = 0xcbf29ce484222325ULL;
+  for (size_t i = 0; i < len; ++i) {
+    h ^= static_cast<uint8_t>(s[i]);
+    h *= 0x100000001b3ULL;
+  }
+  return h;
+}
+
+static void InitNativeMsvcString(NativeMsvcString &dst, const std::string &src,
+                                 std::string &backing) {
+  backing = src;
+  dst.size = backing.size();
+  if (backing.size() < 16) {
+    std::memset(dst.bx.buf, 0, sizeof(dst.bx.buf));
+    std::memcpy(dst.bx.buf, backing.data(), backing.size());
+    dst.cap = 15;
+  } else {
+    dst.bx.ptr = backing.c_str();
+    dst.cap = backing.size();
+  }
+}
+
+using FnLookupByName = void *(__fastcall *)(void *lookupMap, void *outWeakPtr,
+                                            const HashedStringRaw *name,
+                                            bool logMissing);
+using FnBlockTessCtor = void *(__fastcall *)(void *bt, void *blockSource);
+using FnBlockTessPrepare = void(__fastcall *)(void *bt,
+                                              const BlockPos3i *origin);
+using FnBlockTessSetupCache = void(__fastcall *)(void *bt,
+                                                 const BlockPos3i *origin);
+using FnBlockTessInWorld = bool(__fastcall *)(void *bt, void *tess,
+                                              const void *block,
+                                              const BlockPos3i *pos,
+                                              bool checkCull);
+using FnBlockTessExtra = bool(__fastcall *)(void *bt, void *tess,
+                                            const void *block,
+                                            const BlockPos3i *pos,
+                                            BlockPos3i *outPos);
+using FnTessCtor = void *(__fastcall *)(void *tess, const void *weakMeshCtx);
+using FnTexGroupGetTex = void *(__fastcall *)(void *texGroupPlus18,
+                                              void *outTexPtr,
+                                              const ResourceLocationRaw *loc,
+                                              bool forceReload, void *a5,
+                                              void *a6);
+
+static bool g_NativeAttempted = false;
+static bool g_NativeReady = false;
+static FnLookupByName g_LookupByName = nullptr;
+static void *g_BlockLookupMap = nullptr;
+static FnBlockTessCtor g_BlockTessCtor = nullptr;
+static FnBlockTessPrepare g_BlockTessPrepare = nullptr;
+static FnBlockTessSetupCache g_BlockTessSetupCache = nullptr;
+static FnBlockTessInWorld g_BlockTessInWorld = nullptr;
+static FnBlockTessExtra g_BlockTessExtra = nullptr;
+static FnTessCtor g_TessCtor = nullptr;
+static FnTexGroupGetTex g_TexGroupGetTex = nullptr;
+static void **g_BgfxCtxPtr = nullptr;
+
+static std::mutex g_NativeTessMutex;
+static std::vector<uint8_t> g_StandaloneBtBuf;
+static std::vector<uint8_t> g_StandaloneTessBuf;
+static bool g_StandaloneBtInit = false;
+static bool g_StandaloneTessInit = false;
+
+static uintptr_t ResolveRipDisp(uintptr_t instrAddr, int dispOffset,
+                                int instrLen) {
+  if (!IsValidReadablePtr(reinterpret_cast<void *>(instrAddr)))
+    return 0;
+  int32_t disp = *reinterpret_cast<const int32_t *>(instrAddr + dispOffset);
+  return instrAddr + instrLen + static_cast<intptr_t>(disp);
+}
+
+static void EnsureNativeSigs() {
+  if (g_NativeAttempted)
+    return;
+  g_NativeAttempted = true;
+
+  g_LookupByName =
+      reinterpret_cast<FnLookupByName>(GET_SIG("BlockTypeRegistry::lookupByName"));
+  uintptr_t mapRef =
+      reinterpret_cast<uintptr_t>(GET_SIG("BlockTypeRegistry::mMap_ref"));
+  if (mapRef)
+    g_BlockLookupMap = reinterpret_cast<void *>(ResolveRipDisp(mapRef, 3, 7));
+
+  g_BlockTessCtor =
+      reinterpret_cast<FnBlockTessCtor>(GET_SIG("BlockTessellator::ctor"));
+  g_BlockTessPrepare =
+      reinterpret_cast<FnBlockTessPrepare>(GET_SIG("BlockTessellator::prepare"));
+  g_BlockTessSetupCache = reinterpret_cast<FnBlockTessSetupCache>(
+      GET_SIG("BlockTessellator::setupCache"));
+  g_BlockTessInWorld = reinterpret_cast<FnBlockTessInWorld>(
+      GET_SIG("BlockTessellator::tessellateInWorld"));
+  g_BlockTessExtra = reinterpret_cast<FnBlockTessExtra>(
+      GET_SIG("BlockTessellator::tessellateExtra"));
+  g_TessCtor = reinterpret_cast<FnTessCtor>(GET_SIG("Tessellator::ctor"));
+  g_TexGroupGetTex =
+      reinterpret_cast<FnTexGroupGetTex>(GET_SIG("TextureGroup::getTexture"));
+
+  uintptr_t bgfxRef =
+      reinterpret_cast<uintptr_t>(GET_SIG("bgfx_s_ctx_ref"));
+  if (bgfxRef)
+    g_BgfxCtxPtr = reinterpret_cast<void **>(ResolveRipDisp(bgfxRef, 3, 7));
+
+  g_NativeReady = (g_LookupByName && g_BlockLookupMap && g_BlockTessCtor &&
+                   g_BlockTessPrepare && g_BlockTessSetupCache &&
+                   g_BlockTessInWorld && g_TessCtor && g_TessBegin);
+
+  Logger::info(
+      g_NativeReady
+          ? "Native FakeWorld + BlockTessellator hooks resolved."
+          : "Native FakeWorld + BlockTessellator hooks incomplete.",
+      "BedrockGame");
+}
+
+static const void *LookupLegacySeh(const HashedStringRaw *hs) {
+  void *weakOut[2] = {nullptr, nullptr};
+  __try {
+    g_LookupByName(g_BlockLookupMap, weakOut, hs, false);
+    return weakOut[0];
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return nullptr;
+  }
+}
+
+static bool ReadLegacyPermsSeh(const void *legacy, const void **outDef,
+                               const void *const **outBegin,
+                               const void *const **outEnd) {
+  __try {
+    uintptr_t p = reinterpret_cast<uintptr_t>(legacy);
+    *outDef = *reinterpret_cast<const void *const *>(p + 0x240);
+    *outBegin = *reinterpret_cast<const void *const *const *>(p + 0x228);
+    *outEnd = *reinterpret_cast<const void *const *const *>(p + 0x230);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static const void *ReadPtrArrayElemSeh(const void *const *arr, size_t idx) {
+  __try {
+    return arr[idx];
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return nullptr;
+  }
+}
+
+static const void *ResolveRuntimeBlock(
+    const std::string &name,
+    const std::vector<Bedrockmetica::BlockStateProp> &props) {
+  if (!g_LookupByName || !g_BlockLookupMap || name.empty())
+    return nullptr;
+
+  std::string fullName = name;
+  if (fullName.find(':') == std::string::npos)
+    fullName = "minecraft:" + fullName;
+
+  std::string backing;
+  HashedStringRaw hs{};
+  InitNativeMsvcString(hs.str, fullName, backing);
+  hs.hash = ComputeFnv1a64(backing.data(), backing.size());
+  hs.lastMatch = nullptr;
+
+  const void *legacy = LookupLegacySeh(&hs);
+  if (!IsValidReadablePtr(legacy))
+    return nullptr;
+
+  const void *defBlock = nullptr;
+  const void *const *permBegin = nullptr;
+  const void *const *permEnd = nullptr;
+  if (!ReadLegacyPermsSeh(legacy, &defBlock, &permBegin, &permEnd))
+    return nullptr;
+
+  if (props.empty()) {
+    if (IsValidReadablePtr(defBlock))
+      return defBlock;
+    if (IsValidReadablePtr(permBegin) && permBegin < permEnd) {
+      const void *first = ReadPtrArrayElemSeh(permBegin, 0);
+      if (IsValidReadablePtr(first))
+        return first;
+    }
+    return nullptr;
+  }
+
+  if (!IsValidReadablePtr(permBegin) || !IsValidReadablePtr(permEnd) ||
+      permEnd <= permBegin) {
+    return IsValidReadablePtr(defBlock) ? defBlock : nullptr;
+  }
+
+  size_t count = static_cast<size_t>(permEnd - permBegin);
+  if (count > 512)
+    count = 512;
+
+  const void *bestBlock = IsValidReadablePtr(defBlock) ? defBlock : nullptr;
+  int bestScore = -1;
+
+  for (size_t i = 0; i < count; ++i) {
+    const void *cand = ReadPtrArrayElemSeh(permBegin, i);
+    if (!IsValidReadablePtr(cand))
+      continue;
+
+    std::string candName;
+    std::vector<Bedrockmetica::BlockStateProp> candProps;
+    if (!ReadBlockSerialization(cand, candName, candProps))
+      continue;
+
+    int score = 0;
+    for (const auto &want : props) {
+      for (const auto &have : candProps) {
+        if (have.key != want.key || have.type != want.type)
+          continue;
+        bool eq = false;
+        if (want.type == Bedrockmetica::BlockStateType::String)
+          eq = (have.strVal == want.strVal);
+        else
+          eq = (have.intVal == want.intVal);
+        if (eq)
+          score += 2;
+        else
+          score -= 1;
+        break;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestBlock = cand;
+      if (score == static_cast<int>(props.size()) * 2)
+        break;
+    }
+  }
+
+  return bestBlock;
+}
+
+struct FakeWorldContext {
+  int32_t width = 0;
+  int32_t height = 0;
+  int32_t depth = 0;
+  const void *airBlock = nullptr;
+  std::vector<const void *> grid;
+};
+
+static thread_local const FakeWorldContext *tls_FakeWorld = nullptr;
+
+static const void *__fastcall FakeBsGetBlockLayer(void *self,
+                                                  const BlockPos3i *pos,
+                                                  uint32_t layer) {
+  (void)self;
+  const FakeWorldContext *fw = tls_FakeWorld;
+  if (!fw)
+    return nullptr;
+  if (layer != 0 || !pos)
+    return fw->airBlock;
+  if (pos->x < 0 || pos->y < 0 || pos->z < 0 || pos->x >= fw->width ||
+      pos->y >= fw->height || pos->z >= fw->depth)
+    return fw->airBlock;
+  size_t idx =
+      (static_cast<size_t>(pos->y) * static_cast<size_t>(fw->depth) +
+       static_cast<size_t>(pos->z)) *
+          static_cast<size_t>(fw->width) +
+      static_cast<size_t>(pos->x);
+  const void *b = fw->grid[idx];
+  return b ? b : fw->airBlock;
+}
+
+static const void *__fastcall FakeBsGetBlock(void *self, const BlockPos3i *pos) {
+  return FakeBsGetBlockLayer(self, pos, 0);
+}
+
+static const void *__fastcall FakeBsGetExtraBlock(void *self,
+                                                  const BlockPos3i *pos) {
+  (void)self;
+  (void)pos;
+  const FakeWorldContext *fw = tls_FakeWorld;
+  return fw ? fw->airBlock : nullptr;
+}
+
+static uint8_t GetBlockTerrainLayer(const void *blk) {
+  if (!IsValidReadablePtr(blk))
+    return 0;
+  __try {
+    const void *legacy = *reinterpret_cast<const void *const *>(
+        reinterpret_cast<uintptr_t>(blk) + 0x68);
+    if (!IsValidReadablePtr(legacy))
+      return 0;
+    return *reinterpret_cast<const uint8_t *>(
+        reinterpret_cast<uintptr_t>(legacy) + 0x162);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return 0;
+  }
+}
+
+static bool InitStandaloneTessellatorSeh(void *buf) {
+  uintptr_t emptyWeak[2] = {0, 0};
+  __try {
+    g_TessCtor(buf, emptyWeak);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static bool InitStandaloneTessellator() {
+  if (g_StandaloneTessInit)
+    return true;
+  if (!g_TessCtor)
+    return false;
+  g_StandaloneTessBuf.assign(0x2E0, 0);
+  if (!InitStandaloneTessellatorSeh(g_StandaloneTessBuf.data()))
+    return false;
+  g_StandaloneTessInit = true;
+  return true;
+}
+
+static bool InitStandaloneBlockTessCtorSeh(void *buf, void *fakeBs) {
+  __try {
+    g_BlockTessCtor(buf, fakeBs);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static bool InitStandaloneBlockTessellator(void *fakeBs) {
+  if (!g_BlockTessCtor)
+    return false;
+  if (!g_StandaloneBtInit) {
+    g_StandaloneBtBuf.assign(0x48000, 0);
+    if (!InitStandaloneBlockTessCtorSeh(g_StandaloneBtBuf.data(), fakeBs))
+      return false;
+    g_StandaloneBtInit = true;
+  } else {
+    *reinterpret_cast<void **>(g_StandaloneBtBuf.data() + 0x8) = fakeBs;
+    *reinterpret_cast<void **>(g_StandaloneBtBuf.data() + 0x6C8) = fakeBs;
+  }
+  return true;
+}
+
+static bool PrepareSubchunkSeh(void *bt, const BlockPos3i *origin) {
+  __try {
+    g_BlockTessPrepare(bt, origin);
+    g_BlockTessSetupCache(bt, origin);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static bool TessBeginSeh(void *tess) {
+  __try {
+    g_TessBegin(tess, 0, 1, 0x2EE0, true);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static void TessBlockSeh(void *bt, void *tess, const void *blk,
+                         const BlockPos3i *pos, bool extraPass) {
+  __try {
+    if (extraPass && g_BlockTessExtra) {
+      BlockPos3i tmpPos = *pos;
+      g_BlockTessExtra(bt, tess, blk, pos, &tmpPos);
+    } else {
+      g_BlockTessInWorld(bt, tess, blk, pos, true);
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+}
+
+static void ExtractTessQuads(void *tess, float cx, float cy, float cz,
+                             std::vector<NativeQuadVertex> &outTris) {
+  uintptr_t t = reinterpret_cast<uintptr_t>(tess);
+  const float *posBegin = *reinterpret_cast<const float *const *>(t + 0x10);
+  const float *posEnd = *reinterpret_cast<const float *const *>(t + 0x18);
+  if (!IsValidReadablePtr(posBegin) || !IsValidReadablePtr(posEnd) ||
+      posEnd <= posBegin)
+    return;
+
+  size_t vertCount = static_cast<size_t>(posEnd - posBegin) / 3;
+  if (vertCount < 4)
+    return;
+
+  uint8_t hasColor = *reinterpret_cast<const uint8_t *>(t + 0x1B4);
+  uint8_t hasUv0 = *reinterpret_cast<const uint8_t *>(t + 0x194);
+  const uint32_t *colBegin =
+      hasColor ? *reinterpret_cast<const uint32_t *const *>(t + 0x70) : nullptr;
+  const float *uvBegin =
+      hasUv0 ? *reinterpret_cast<const float *const *>(t + 0xA0) : nullptr;
+
+  auto mkV = [&](size_t vi) -> NativeQuadVertex {
+    NativeQuadVertex v{};
+    v.x = posBegin[vi * 3 + 0] - cx;
+    v.y = posBegin[vi * 3 + 1] - cy;
+    v.z = posBegin[vi * 3 + 2] - cz;
+    if (uvBegin) {
+      v.u = uvBegin[vi * 2 + 0];
+      v.v = uvBegin[vi * 2 + 1];
+    } else {
+      v.u = -1.0f;
+      v.v = 0.0f;
+    }
+    v.abgr = colBegin ? colBegin[vi] : 0xFFFFFFFFu;
+    return v;
+  };
+
+  size_t quadCount = vertCount / 4;
+  outTris.reserve(outTris.size() + quadCount * 6);
+  for (size_t q = 0; q < quadCount; ++q) {
+    size_t b = q * 4;
+    NativeQuadVertex v0 = mkV(b + 0);
+    NativeQuadVertex v1 = mkV(b + 1);
+    NativeQuadVertex v2 = mkV(b + 2);
+    NativeQuadVertex v3 = mkV(b + 3);
+    outTris.push_back(v0);
+    outTris.push_back(v1);
+    outTris.push_back(v2);
+    outTris.push_back(v0);
+    outTris.push_back(v2);
+    outTris.push_back(v3);
+  }
+}
+
+static bool TessellateFakeWorldPass(void *bt, void *tess,
+                                    const FakeWorldContext &fw,
+                                    NativePreviewMesh &outMesh) {
+  float cx = static_cast<float>(fw.width) * 0.5f;
+  float cy = static_cast<float>(fw.height) * 0.5f;
+  float cz = static_cast<float>(fw.depth) * 0.5f;
+
+  static const uint8_t kLayers[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+  for (int32_t sy = 0; sy < fw.height; sy += 16) {
+    int32_t ey = (sy + 16 < fw.height) ? (sy + 16) : fw.height;
+    for (int32_t sz = 0; sz < fw.depth; sz += 16) {
+      int32_t ez = (sz + 16 < fw.depth) ? (sz + 16) : fw.depth;
+      for (int32_t sx = 0; sx < fw.width; sx += 16) {
+        int32_t ex = (sx + 16 < fw.width) ? (sx + 16) : fw.width;
+
+        BlockPos3i origin{sx, sy, sz};
+        if (!PrepareSubchunkSeh(bt, &origin))
+          return false;
+
+        uintptr_t btAddr = reinterpret_cast<uintptr_t>(bt);
+        *reinterpret_cast<int32_t *>(btAddr + 0xEC) = 0;
+        *reinterpret_cast<uint8_t *>(btAddr + 0x478F8) = 1;
+        float *constColor = reinterpret_cast<float *>(btAddr + 0x478E8);
+        constColor[0] = 1.0f;
+        constColor[1] = 1.0f;
+        constColor[2] = 1.0f;
+        constColor[3] = 1.0f;
+
+        for (uint8_t layer : kLayers) {
+          *reinterpret_cast<int32_t *>(btAddr + 0x80) =
+              static_cast<int32_t>(layer);
+          *reinterpret_cast<uint8_t *>(btAddr + 0x478FC) =
+              (layer == 0) ? 1 : 0;
+
+          if (!TessBeginSeh(tess))
+            return false;
+
+          float *tessOff =
+              reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1CC);
+          tessOff[0] = 0.0f;
+          tessOff[1] = 0.0f;
+          tessOff[2] = 0.0f;
+          float *tessScale =
+              reinterpret_cast<float *>(reinterpret_cast<uintptr_t>(tess) + 0x1D8);
+          tessScale[0] = 1.0f;
+          tessScale[1] = 1.0f;
+          tessScale[2] = 1.0f;
+
+          for (int32_t y = sy; y < ey; ++y) {
+            for (int32_t z = sz; z < ez; ++z) {
+              for (int32_t x = sx; x < ex; ++x) {
+                size_t idx =
+                    (static_cast<size_t>(y) * static_cast<size_t>(fw.depth) +
+                     static_cast<size_t>(z)) *
+                        static_cast<size_t>(fw.width) +
+                    static_cast<size_t>(x);
+                const void *blk = fw.grid[idx];
+                if (!blk || blk == fw.airBlock)
+                  continue;
+                BlockPos3i pos{x, y, z};
+                TessBlockSeh(bt, tess, blk, &pos, layer == 5);
+              }
+            }
+          }
+
+          bool isTrans = (layer == 5 || layer == 6 || layer == 8 || layer == 9);
+          ExtractTessQuads(tess, cx, cy, cz,
+                           isTrans ? outMesh.transTris : outMesh.opaqueTris);
+
+          if (outMesh.opaqueTris.size() + outMesh.transTris.size() >= 900000)
+            return true;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+static bool CloneBlockSourceSeh(void *realBs, uint8_t *fakeBs, void **fakeVt,
+                                size_t vtCount) {
+  __try {
+    std::memcpy(fakeBs, realBs, 0x240);
+    void **realVt = *reinterpret_cast<void ***>(realBs);
+    if (!IsValidReadablePtr(realVt))
+      return false;
+    std::memcpy(fakeVt, realVt, vtCount * sizeof(void *));
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return false;
+  }
+}
+
+static void *FindTextureGroupFromClientSeh(void *ci) {
+  if (!IsValidReadablePtr(ci) || !g_TexGroupGetTex)
+    return nullptr;
+
+  __try {
+    auto checkCand = [](void *cand) -> void * {
+      if (!IsValidReadablePtr(cand))
+        return nullptr;
+      void *tgPlus18 =
+          reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(cand) + 0x18);
+      if (!IsValidReadablePtr(tgPlus18))
+        return nullptr;
+      uintptr_t *vt = *reinterpret_cast<uintptr_t **>(tgPlus18);
+      if (!IsValidReadablePtr(vt))
+        return nullptr;
+      if (vt[2] == reinterpret_cast<uintptr_t>(g_TexGroupGetTex))
+        return tgPlus18;
+      return nullptr;
+    };
+
+    void *direct =
+        *reinterpret_cast<void **>(reinterpret_cast<uintptr_t>(ci) + 0x6C0);
+    if (void *tg = checkCand(direct))
+      return tg;
+
+    for (uintptr_t off = 0x100; off <= 0x900; off += 8) {
+      void *cand =
+          *reinterpret_cast<void **>(reinterpret_cast<uintptr_t>(ci) + off);
+      if (void *tg = checkCand(cand))
+        return tg;
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+  return nullptr;
+}
+
+static uint16_t ResolveAtlasHandleSeh(void *tgPlus18,
+                                      const ResourceLocationRaw *loc) {
+  __try {
+    uintptr_t texPtrOut[4] = {};
+    g_TexGroupGetTex(tgPlus18, texPtrOut, loc, false, nullptr, nullptr);
+    uintptr_t bedrockTex = texPtrOut[0];
+    if (!IsValidReadablePtr(reinterpret_cast<void *>(bedrockTex)))
+      return 0xFFFF;
+
+    uintptr_t *vecBegin = *reinterpret_cast<uintptr_t **>(bedrockTex + 0x38);
+    uintptr_t *vecEnd = *reinterpret_cast<uintptr_t **>(bedrockTex + 0x40);
+    if (!IsValidReadablePtr(vecBegin) || !IsValidReadablePtr(vecEnd) ||
+        vecEnd <= vecBegin)
+      return 0xFFFF;
+
+    uintptr_t *clientTexPtr = reinterpret_cast<uintptr_t *>(vecBegin[0]);
+    if (!IsValidReadablePtr(clientTexPtr))
+      return 0xFFFF;
+    uintptr_t clientTex = clientTexPtr[0];
+    if (!IsValidReadablePtr(reinterpret_cast<void *>(clientTex)))
+      return 0xFFFF;
+
+    return *reinterpret_cast<const uint16_t *>(clientTex + 0xAA);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return 0xFFFF;
+  }
+}
+
+static void *LookupBgfxTextureD3D12Seh(void *sCtx, uint16_t handle) {
+  __try {
+    uintptr_t renderCtx = *reinterpret_cast<const uintptr_t *>(
+        reinterpret_cast<uintptr_t>(sCtx) + 0x19F58);
+    if (!IsValidReadablePtr(reinterpret_cast<void *>(renderCtx)))
+      return nullptr;
+
+    void *resA = *reinterpret_cast<void *const *>(
+        renderCtx + 0x9B2178 + static_cast<size_t>(handle) * 0x80);
+    if (IsValidReadablePtr(resA))
+      return resA;
+
+    void *resB = *reinterpret_cast<void *const *>(
+        renderCtx + 0x93A178 + static_cast<size_t>(handle) * 0x78);
+    if (IsValidReadablePtr(resB))
+      return resB;
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+  return nullptr;
+}
+
+}
+
+bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
+                            NativePreviewMesh &outMesh) {
+  outMesh.opaqueTris.clear();
+  outMesh.transTris.clear();
+  outMesh.valid = false;
+
+  EnsureNativeSigs();
+  if (!g_NativeReady)
+    return false;
+
+  void *realBs = GetBlockSource();
+  if (!IsValidReadablePtr(realBs))
+    return false;
+  if (doc.width <= 0 || doc.height <= 0 || doc.depth <= 0 ||
+      doc.palette.empty() || doc.parts.empty())
+    return false;
+
+  std::lock_guard<std::mutex> lock(g_NativeTessMutex);
+
+  const void *airBlock = ResolveRuntimeBlock("minecraft:air", {});
+  if (!airBlock)
+    return false;
+
+  std::vector<const void *> runtimePal(doc.palette.size(), nullptr);
+  bool anyResolved = false;
+
+  for (size_t i = 1; i < doc.palette.size(); ++i) {
+    const auto &entry = doc.palette[i];
+    if (entry.name.empty() || entry.name == "minecraft:air" ||
+        entry.name == "air")
+      continue;
+    const void *blk = ResolveRuntimeBlock(entry.name, entry.states);
+    if (!blk || blk == airBlock)
+      continue;
+    runtimePal[i] = blk;
+    anyResolved = true;
+  }
+
+  if (!anyResolved) {
+    outMesh.valid = true;
+    return true;
+  }
+
+  FakeWorldContext fw{};
+  fw.width = doc.width;
+  fw.height = doc.height;
+  fw.depth = doc.depth;
+  fw.airBlock = airBlock;
+  size_t total = static_cast<size_t>(doc.width) *
+                 static_cast<size_t>(doc.height) *
+                 static_cast<size_t>(doc.depth);
+  fw.grid.assign(total, airBlock);
+
+  for (const auto &part : doc.parts) {
+    if (!part.visible)
+      continue;
+    for (const auto &kv : part.subchunks) {
+      const auto &sc = kv.second;
+      int32_t baseX = part.offsetX + sc.cx * 16;
+      int32_t baseY = part.offsetY + sc.cy * 16;
+      int32_t baseZ = part.offsetZ + sc.cz * 16;
+      for (int32_t sy = 0; sy < 16; ++sy) {
+        int32_t wy = baseY + sy;
+        if (wy < 0 || wy >= fw.height)
+          continue;
+        for (int32_t sz = 0; sz < 16; ++sz) {
+          int32_t wz = baseZ + sz;
+          if (wz < 0 || wz >= fw.depth)
+            continue;
+          for (int32_t sx = 0; sx < 16; ++sx) {
+            int32_t wx = baseX + sx;
+            if (wx < 0 || wx >= fw.width)
+              continue;
+            uint16_t pid = sc.blocks[(sy << 8) | (sz << 4) | sx];
+            if (pid > 0 && pid < runtimePal.size() && runtimePal[pid]) {
+              size_t gIdx =
+                  (static_cast<size_t>(wy) * static_cast<size_t>(fw.depth) +
+                   static_cast<size_t>(wz)) *
+                      static_cast<size_t>(fw.width) +
+                  static_cast<size_t>(wx);
+              fw.grid[gIdx] = runtimePal[pid];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  alignas(16) uint8_t fakeBs[0x280] = {};
+  void *fakeVt[160] = {};
+  if (!CloneBlockSourceSeh(realBs, fakeBs, fakeVt, 160))
+    return false;
+
+  fakeVt[1] = reinterpret_cast<void *>(&FakeBsGetBlockLayer);
+  fakeVt[2] = reinterpret_cast<void *>(&FakeBsGetBlock);
+  fakeVt[4] = reinterpret_cast<void *>(&FakeBsGetExtraBlock);
+  *reinterpret_cast<void ***>(fakeBs) = fakeVt;
+
+  if (!InitStandaloneTessellator() || !InitStandaloneBlockTessellator(fakeBs))
+    return false;
+
+  tls_FakeWorld = &fw;
+  bool ok = TessellateFakeWorldPass(g_StandaloneBtBuf.data(),
+                                    g_StandaloneTessBuf.data(), fw, outMesh);
+  tls_FakeWorld = nullptr;
+
+  outMesh.valid = ok && (!outMesh.opaqueTris.empty() || !outMesh.transTris.empty());
+  return outMesh.valid;
+}
+
+void *GetLiveTerrainAtlasD3D12Resource() {
+  EnsureNativeSigs();
+  if (!g_BgfxCtxPtr || !IsValidReadablePtr(g_BgfxCtxPtr))
+    return nullptr;
+
+  void *sCtx = *g_BgfxCtxPtr;
+  if (!IsValidReadablePtr(sCtx))
+    return nullptr;
+
+  void *ci = GetClientInstance();
+  void *tgPlus18 = FindTextureGroupFromClientSeh(ci);
+  if (!tgPlus18 || !g_TexGroupGetTex)
+    return nullptr;
+
+  std::string backing;
+  ResourceLocationRaw loc{};
+  loc.type = 0;
+  InitNativeMsvcString(loc.path, "atlas.terrain", backing);
+  loc.pathHash = ComputeFnv1a64(backing.data(), backing.size());
+  loc.fullHash = loc.pathHash;
+
+  uint16_t handle = ResolveAtlasHandleSeh(tgPlus18, &loc);
+  if (handle == 0xFFFF || handle >= 4096)
+    return nullptr;
+
+  return LookupBgfxTextureD3D12Seh(sCtx, handle);
+}
+
 }
