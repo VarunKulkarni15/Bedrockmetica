@@ -1741,14 +1741,25 @@ static void *ReadPtrSeh(void *const *pp) {
 
 void *GetLiveTerrainAtlasD3D12Resource() {
   EnsureNativeSigs();
+  static bool s_LoggedAtlasDiag = false;
   if (!g_BgfxCtxPtr || !IsValidReadablePtr(g_BgfxCtxPtr)) {
-    Logger::info("LiveAtlas: g_BgfxCtxPtr null or invalid.", "BedrockGame");
+    if (!s_LoggedAtlasDiag) {
+      s_LoggedAtlasDiag = true;
+      Logger::info("LiveAtlas: g_BgfxCtxPtr null or invalid.", "BedrockGame");
+    }
     return nullptr;
   }
 
   void *sCtx = ReadPtrSeh(g_BgfxCtxPtr);
   if (!IsValidReadablePtr(sCtx)) {
-    Logger::info("LiveAtlas: sCtx null or invalid.", "BedrockGame");
+    if (!s_LoggedAtlasDiag) {
+      s_LoggedAtlasDiag = true;
+      void *ciDiag = GetClientInstance();
+      void *tgDiag = FindTextureGroupFromClientSeh(ciDiag);
+      Logger::info(tgDiag ? "LiveAtlas: sCtx null (TextureGroup found)."
+                          : "LiveAtlas: sCtx null (TextureGroup not found).",
+                   "BedrockGame");
+    }
     return nullptr;
   }
 

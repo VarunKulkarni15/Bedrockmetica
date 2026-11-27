@@ -1439,7 +1439,7 @@ void SetStructurePath(const std::string &path, const std::string &format) {
   void *liveRes =
       (g_IsDx12 && hasBs) ? BedrockGame::GetLiveTerrainAtlasD3D12Resource()
                           : nullptr;
-  bool inWorldNow = (g_IsDx12 && hasBs && liveRes != nullptr);
+  bool inWorldNow = (g_IsDx12 && hasBs);
   if (path == g_LoadedPath && (atlasNow == g_WasAtlasReady) &&
       (inWorldNow == g_WasInWorld))
     return;
@@ -1469,25 +1469,36 @@ void SetStructurePath(const std::string &path, const std::string &format) {
       BedrockGame::NativePreviewMesh nativeMesh;
       if (BedrockGame::BuildNativePreviewMesh(doc, nativeMesh) &&
           nativeMesh.valid) {
+        bool hasLiveAtlas = (liveRes != nullptr);
         g_MaxDim =
             static_cast<float>(std::max({doc.width, doc.height, doc.depth, 4}));
-        auto convertVerts = [](const std::vector<BedrockGame::NativeQuadVertex> &src,
-                               std::vector<PreviewVertex> &dst) {
+        auto convertVerts = [hasLiveAtlas](
+                                const std::vector<BedrockGame::NativeQuadVertex>
+                                    &src,
+                                std::vector<PreviewVertex> &dst) {
           dst.reserve(src.size());
           for (const auto &v : src) {
             uint8_t r = static_cast<uint8_t>(v.abgr & 0xFFu);
             uint8_t g = static_cast<uint8_t>((v.abgr >> 8) & 0xFFu);
             uint8_t b = static_cast<uint8_t>((v.abgr >> 16) & 0xFFu);
             uint8_t a = static_cast<uint8_t>((v.abgr >> 24) & 0xFFu);
-            dst.push_back(PreviewVertex{v.x, v.y, v.z, v.u, v.v, r, g, b, a});
+            float u = hasLiveAtlas ? v.u : -1.0f;
+            float tv = hasLiveAtlas ? v.v : 0.0f;
+            dst.push_back(PreviewVertex{v.x, v.y, v.z, u, tv, r, g, b, a});
           }
         };
         convertVerts(nativeMesh.opaqueTris, g_OpaqueVerts);
         convertVerts(nativeMesh.transTris, g_TransVerts);
         g_HasMesh = (!g_OpaqueVerts.empty() || !g_TransVerts.empty());
-        g_UsingLiveAtlas = true;
+        g_UsingLiveAtlas = hasLiveAtlas;
         g_MeshDirty = true;
         g_RenderDirty = true;
+        Logger::info(
+            "PreviewRenderer: native FakeWorld mesh ready (opaque=" +
+                std::to_string(g_OpaqueVerts.size()) +
+                ", trans=" + std::to_string(g_TransVerts.size()) +
+                ", liveAtlas=" + std::string(hasLiveAtlas ? "1" : "0") + ")",
+            "PreviewRenderer");
         return;
       }
     }
