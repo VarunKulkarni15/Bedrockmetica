@@ -1459,6 +1459,8 @@ void SetStructurePath(const std::string &path, const std::string &format) {
                 : Bedrockmetica::McStructureCodec::LoadFile(path, doc);
   if (ok) {
     if (inWorldNow) {
+      Logger::info("PreviewRenderer: calling BuildNativePreviewMesh...",
+                   "PreviewRenderer");
       BedrockGame::NativePreviewMesh nativeMesh;
       if (BedrockGame::BuildNativePreviewMesh(doc, nativeMesh) &&
           nativeMesh.valid) {

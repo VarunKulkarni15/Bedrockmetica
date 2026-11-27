@@ -1601,22 +1601,34 @@ bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
   outMesh.valid = false;
 
   EnsureNativeSigs();
-  if (!g_NativeReady)
+  if (!g_NativeReady) {
+    Logger::info("Native FakeWorld: g_NativeReady is false.", "BedrockGame");
     return false;
+  }
 
   void *realBs = GetBlockSource();
-  if (!IsValidReadablePtr(realBs))
+  if (!IsValidReadablePtr(realBs)) {
+    Logger::info("Native FakeWorld: GetBlockSource invalid.", "BedrockGame");
     return false;
+  }
   if (doc.width <= 0 || doc.height <= 0 || doc.depth <= 0 ||
-      doc.palette.empty() || doc.parts.empty())
+      doc.palette.empty() || doc.parts.empty()) {
+    Logger::info("Native FakeWorld: empty doc dimensions/palette/parts.",
+                 "BedrockGame");
     return false;
+  }
 
   std::lock_guard<std::mutex> lock(g_NativeTessMutex);
+  Logger::info("Native FakeWorld: resolving air block...", "BedrockGame");
 
   const void *airBlock = ResolveRuntimeBlock("minecraft:air", {});
-  if (!airBlock)
+  if (!airBlock) {
+    Logger::info("Native FakeWorld: failed to resolve minecraft:air.",
+                 "BedrockGame");
     return false;
+  }
 
+  Logger::info("Native FakeWorld: resolving palette...", "BedrockGame");
   std::vector<const void *> runtimePal(doc.palette.size(), nullptr);
   bool anyResolved = false;
 
@@ -1682,18 +1694,28 @@ bool BuildNativePreviewMesh(const Bedrockmetica::SchematicDocument &doc,
     }
   }
 
+  Logger::info("Native FakeWorld: cloning BlockSource...", "BedrockGame");
   alignas(16) uint8_t fakeBs[0x280] = {};
   void *fakeVt[160] = {};
-  if (!CloneBlockSourceSeh(realBs, fakeBs, fakeVt, 160))
+  if (!CloneBlockSourceSeh(realBs, fakeBs, fakeVt, 160)) {
+    Logger::info("Native FakeWorld: CloneBlockSourceSeh failed.", "BedrockGame");
     return false;
+  }
 
   fakeVt[1] = reinterpret_cast<void *>(&FakeBsGetBlockLayer);
   fakeVt[2] = reinterpret_cast<void *>(&FakeBsGetBlock);
   fakeVt[4] = reinterpret_cast<void *>(&FakeBsGetExtraBlock);
   *reinterpret_cast<void ***>(fakeBs) = fakeVt;
 
-  if (!InitStandaloneTessellator() || !InitStandaloneBlockTessellator(fakeBs)) {
-    Logger::warn("Native FakeWorld: Tessellator/BlockTessellator init failed.",
+  Logger::info("Native FakeWorld: init standalone Tessellator...", "BedrockGame");
+  if (!InitStandaloneTessellator()) {
+    Logger::warn("Native FakeWorld: Tessellator init failed.", "BedrockGame");
+    return false;
+  }
+  Logger::info("Native FakeWorld: init standalone BlockTessellator...",
+               "BedrockGame");
+  if (!InitStandaloneBlockTessellator(fakeBs)) {
+    Logger::warn("Native FakeWorld: BlockTessellator init failed.",
                  "BedrockGame");
     return false;
   }
@@ -1720,8 +1742,10 @@ void *GetLiveTerrainAtlasD3D12Resource() {
 
   void *ci = GetClientInstance();
   void *tgPlus18 = FindTextureGroupFromClientSeh(ci);
-  if (!tgPlus18 || !g_TexGroupGetTex)
+  if (!tgPlus18 || !g_TexGroupGetTex) {
+    Logger::info("LiveAtlas: TextureGroup or getTexture missing.", "BedrockGame");
     return nullptr;
+  }
 
   std::string backing;
   ResourceLocationRaw loc{};
@@ -1730,13 +1754,19 @@ void *GetLiveTerrainAtlasD3D12Resource() {
   loc.pathHash = ComputeFnv1a64(backing.data(), backing.size());
   loc.fullHash = loc.pathHash;
 
+  Logger::info("LiveAtlas: calling ResolveAtlasHandleSeh...", "BedrockGame");
   uint16_t handle = ResolveAtlasHandleSeh(tgPlus18, &loc);
-  if (handle == 0xFFFF || handle >= 4096)
+  if (handle == 0xFFFF || handle >= 4096) {
+    Logger::info("LiveAtlas: invalid handle resolved.", "BedrockGame");
     return nullptr;
+  }
 
+  Logger::info("LiveAtlas: looking up D3D12 resource...", "BedrockGame");
   void *res = LookupBgfxTextureD3D12Seh(sCtx, handle, false);
   if (!res)
     res = LookupBgfxTextureD3D12Seh(sCtx, handle, true);
+  Logger::info(res ? "LiveAtlas: resource found." : "LiveAtlas: resource null.",
+               "BedrockGame");
   return res;
 }
 
