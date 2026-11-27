@@ -175,9 +175,9 @@ void ComputeMvpMatrix(float *outM16) {
   float uz = rx * fy - ry * fx;
 
   float view[16] = {
-      rx, ry, rz, -(rx * eyeX + ry * eyeY + rz * eyeZ),
-      ux, uy, uz, -(ux * eyeX + uy * eyeY + uz * eyeZ),
-      fx, fy, fz, -(fx * eyeX + fy * eyeY + fz * eyeZ),
+      rx,   ry,   rz,   -(rx * eyeX + ry * eyeY + rz * eyeZ),
+      ux,   uy,   uz,   -(ux * eyeX + uy * eyeY + uz * eyeZ),
+      fx,   fy,   fz,   -(fx * eyeX + fy * eyeY + fz * eyeZ),
       0.0f, 0.0f, 0.0f, 1.0f,
   };
 
@@ -209,13 +209,18 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
   float halfW = static_cast<float>(doc.width) * 0.5f;
   float halfH = static_cast<float>(doc.height) * 0.5f;
   float halfD = static_cast<float>(doc.depth) * 0.5f;
-  g_MaxDim = static_cast<float>(std::max({doc.width, doc.height, doc.depth, 4}));
+  g_MaxDim =
+      static_cast<float>(std::max({doc.width, doc.height, doc.depth, 4}));
 
   std::vector<BlockTextureRegistry::BlockFaces> palFaces(doc.palette.size());
   std::vector<int> palShape(doc.palette.size(), 0);
   std::vector<bool> palTrans(doc.palette.size(), false);
 
   auto classifyShape = [](const std::string &name) -> int {
+    if (name.find("light_block") != std::string::npos ||
+        name.find("structure_void") != std::string::npos ||
+        name.find("barrier") != std::string::npos)
+      return -1;
     if (name.find("tall_grass") != std::string::npos ||
         name.find("short_grass") != std::string::npos ||
         name.find("tallgrass") != std::string::npos ||
@@ -245,8 +250,7 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
     if (name.find("_slab") != std::string::npos &&
         name.find("double_slab") == std::string::npos)
       return 3;
-    if (name.find("_wall") != std::string::npos ||
-        name.find("_fence") != std::string::npos)
+    if (name.find("_wall") != std::string::npos)
       return 4;
     if (name.find("glass_pane") != std::string::npos ||
         name.find("iron_bars") != std::string::npos)
@@ -255,6 +259,20 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
       return 6;
     if (name.find("_stairs") != std::string::npos)
       return 7;
+    if (name.find("wheat") != std::string::npos ||
+        name.find("carrots") != std::string::npos ||
+        name.find("potatoes") != std::string::npos ||
+        name.find("beetroot") != std::string::npos ||
+        name.find("nether_wart") != std::string::npos)
+      return 8;
+    if (name.find("_fence") != std::string::npos &&
+        name.find("fence_gate") == std::string::npos)
+      return 9;
+    if (name.find("lantern") != std::string::npos)
+      return 10;
+    if (name.find("vine") != std::string::npos ||
+        name.find("glow_lichen") != std::string::npos)
+      return 11;
     return 0;
   };
 
@@ -311,14 +329,19 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
 
         const auto &faces = palFaces[pid];
         int shape = palShape[pid];
+        if (shape < 0)
+          continue;
         bool isTrans = palTrans[pid];
-        std::vector<PreviewVertex> &dst = isTrans ? g_TransVerts : g_OpaqueVerts;
+        bool isWater =
+            isTrans && doc.palette[pid].name.find("water") != std::string::npos;
+        std::vector<PreviewVertex> &dst =
+            isTrans ? g_TransVerts : g_OpaqueVerts;
 
         uint32_t abgr = doc.palette[pid].approxAbgr;
         uint8_t cr = static_cast<uint8_t>(abgr & 0xFF);
         uint8_t cg = static_cast<uint8_t>((abgr >> 8) & 0xFF);
         uint8_t cb = static_cast<uint8_t>((abgr >> 16) & 0xFF);
-        uint8_t ca = isTrans ? 190 : 255;
+        uint8_t ca = isWater ? 185 : (isTrans ? 148 : 255);
 
         float bx0 = static_cast<float>(x) - halfW;
         float by0 = static_cast<float>(y) - halfH;
@@ -380,101 +403,120 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
 
         if (shape == 1) {
           const auto &uv = faces.north.valid ? faces.north : faces.up;
-          pushQuad(bx0 + 0.12f, by1, bz0 + 0.12f, bx1 - 0.12f, by1,
-                   bz1 - 0.12f, bx1 - 0.12f, by0, bz1 - 0.12f, bx0 + 0.12f, by0,
-                   bz0 + 0.12f, 1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
-          pushQuad(bx1 - 0.12f, by1, bz0 + 0.12f, bx0 + 0.12f, by1,
-                   bz1 - 0.12f, bx0 + 0.12f, by0, bz1 - 0.12f, bx1 - 0.12f, by0,
-                   bz0 + 0.12f, 1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
+          pushQuad(bx0 + 0.12f, by1, bz0 + 0.12f, bx1 - 0.12f, by1, bz1 - 0.12f,
+                   bx1 - 0.12f, by0, bz1 - 0.12f, bx0 + 0.12f, by0, bz0 + 0.12f,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
+          pushQuad(bx1 - 0.12f, by1, bz0 + 0.12f, bx0 + 0.12f, by1, bz1 - 0.12f,
+                   bx0 + 0.12f, by0, bz1 - 0.12f, bx1 - 0.12f, by0, bz0 + 0.12f,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
           continue;
         }
 
-        auto emitBox = [&](float ax0, float ay0, float az0, float ax1, float ay1,
-                           float az1, bool fullCube) {
+        auto emitBox = [&](float ax0, float ay0, float az0, float ax1,
+                           float ay1, float az1, bool fullCube) {
           if (!fullCube || !isOpaqueFull(x, y + 1, z)) {
-            float a0 = fullCube ? computeAo(x, y, z, 0, 1, 0, -1, 0, 0, 0, 0, -1,
-                                            1, 1)
-                                : 1.0f;
-            float a1 = fullCube ? computeAo(x, y, z, 0, 1, 0, 1, 0, 0, 0, 0, -1,
-                                            1, 1)
-                                : 1.0f;
-            float a2 = fullCube ? computeAo(x, y, z, 0, 1, 0, 1, 0, 0, 0, 0, 1,
-                                            1, 1)
-                                : 1.0f;
-            float a3 = fullCube ? computeAo(x, y, z, 0, 1, 0, -1, 0, 0, 0, 0, 1,
-                                            1, 1)
-                                : 1.0f;
-            pushQuad(ax0, ay1, az0, ax1, ay1, az0, ax1, ay1, az1, ax0, ay1,
-                     az1, a0, a1, a2, a3, 1.00f, faces.up);
+            float a0 =
+                fullCube ? computeAo(x, y, z, 0, 1, 0, -1, 0, 0, 0, 0, -1, 1, 1)
+                         : 1.0f;
+            float a1 =
+                fullCube ? computeAo(x, y, z, 0, 1, 0, 1, 0, 0, 0, 0, -1, 1, 1)
+                         : 1.0f;
+            float a2 = fullCube
+                           ? computeAo(x, y, z, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1)
+                           : 1.0f;
+            float a3 =
+                fullCube ? computeAo(x, y, z, 0, 1, 0, -1, 0, 0, 0, 0, 1, 1, 1)
+                         : 1.0f;
+            pushQuad(ax0, ay1, az0, ax1, ay1, az0, ax1, ay1, az1, ax0, ay1, az1,
+                     a0, a1, a2, a3, 1.00f, faces.up);
           }
           if (!fullCube || !isOpaqueFull(x, y - 1, z)) {
-            pushQuad(ax0, ay0, az1, ax1, ay0, az1, ax1, ay0, az0, ax0, ay0,
-                     az0, 0.9f, 0.9f, 0.9f, 0.9f, 0.55f, faces.down);
+            pushQuad(ax0, ay0, az1, ax1, ay0, az1, ax1, ay0, az0, ax0, ay0, az0,
+                     0.9f, 0.9f, 0.9f, 0.9f, 0.55f, faces.down);
           }
           if (!fullCube || !isOpaqueFull(x, y, z + 1)) {
-            float a0 = fullCube ? computeAo(x, y, z, 0, 0, 1, -1, 0, 0, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a1 = fullCube ? computeAo(x, y, z, 0, 0, 1, 1, 0, 0, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a2 = fullCube ? computeAo(x, y, z, 0, 0, 1, 1, 0, 0, 0, -1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a3 = fullCube ? computeAo(x, y, z, 0, 0, 1, -1, 0, 0, 0, -1, 0,
-                                            1, 1)
-                                : 1.0f;
-            pushQuad(ax0, ay1, az1, ax1, ay1, az1, ax1, ay0, az1, ax0, ay0,
-                     az1, a0, a1, a2, a3, 0.80f, faces.south);
+            float a0 =
+                fullCube ? computeAo(x, y, z, 0, 0, 1, -1, 0, 0, 0, 1, 0, 1, 1)
+                         : 1.0f;
+            float a1 = fullCube
+                           ? computeAo(x, y, z, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1)
+                           : 1.0f;
+            float a2 =
+                fullCube ? computeAo(x, y, z, 0, 0, 1, 1, 0, 0, 0, -1, 0, 1, 1)
+                         : 1.0f;
+            float a3 =
+                fullCube ? computeAo(x, y, z, 0, 0, 1, -1, 0, 0, 0, -1, 0, 1, 1)
+                         : 1.0f;
+            pushQuad(ax0, ay1, az1, ax1, ay1, az1, ax1, ay0, az1, ax0, ay0, az1,
+                     a0, a1, a2, a3, 0.80f, faces.south);
           }
           if (!fullCube || !isOpaqueFull(x, y, z - 1)) {
-            float a0 = fullCube ? computeAo(x, y, z, 0, 0, -1, 1, 0, 0, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a1 = fullCube ? computeAo(x, y, z, 0, 0, -1, -1, 0, 0, 0, 1,
-                                            0, 1, 1)
-                                : 1.0f;
+            float a0 =
+                fullCube ? computeAo(x, y, z, 0, 0, -1, 1, 0, 0, 0, 1, 0, 1, 1)
+                         : 1.0f;
+            float a1 =
+                fullCube ? computeAo(x, y, z, 0, 0, -1, -1, 0, 0, 0, 1, 0, 1, 1)
+                         : 1.0f;
             float a2 = fullCube ? computeAo(x, y, z, 0, 0, -1, -1, 0, 0, 0, -1,
                                             0, 1, 1)
                                 : 1.0f;
-            float a3 = fullCube ? computeAo(x, y, z, 0, 0, -1, 1, 0, 0, 0, -1,
-                                            0, 1, 1)
-                                : 1.0f;
-            pushQuad(ax1, ay1, az0, ax0, ay1, az0, ax0, ay0, az0, ax1, ay0,
-                     az0, a0, a1, a2, a3, 0.74f, faces.north);
+            float a3 =
+                fullCube ? computeAo(x, y, z, 0, 0, -1, 1, 0, 0, 0, -1, 0, 1, 1)
+                         : 1.0f;
+            pushQuad(ax1, ay1, az0, ax0, ay1, az0, ax0, ay0, az0, ax1, ay0, az0,
+                     a0, a1, a2, a3, 0.80f, faces.north);
           }
           if (!fullCube || !isOpaqueFull(x + 1, y, z)) {
-            float a0 = fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, 1, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a1 = fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, -1, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a2 = fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, -1, 0, -1,
-                                            0, 1, 1)
-                                : 1.0f;
-            float a3 = fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, 1, 0, -1, 0,
-                                            1, 1)
-                                : 1.0f;
-            pushQuad(ax1, ay1, az1, ax1, ay1, az0, ax1, ay0, az0, ax1, ay0,
-                     az1, a0, a1, a2, a3, 0.88f, faces.east);
+            float a0 = fullCube
+                           ? computeAo(x, y, z, 1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1)
+                           : 1.0f;
+            float a1 =
+                fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, -1, 0, 1, 0, 1, 1)
+                         : 1.0f;
+            float a2 =
+                fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, -1, 0, -1, 0, 1, 1)
+                         : 1.0f;
+            float a3 =
+                fullCube ? computeAo(x, y, z, 1, 0, 0, 0, 0, 1, 0, -1, 0, 1, 1)
+                         : 1.0f;
+            pushQuad(ax1, ay1, az1, ax1, ay1, az0, ax1, ay0, az0, ax1, ay0, az1,
+                     a0, a1, a2, a3, 0.90f, faces.east);
           }
           if (!fullCube || !isOpaqueFull(x - 1, y, z)) {
-            float a0 = fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, -1, 0, 1,
-                                            0, 1, 1)
-                                : 1.0f;
-            float a1 = fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, 1, 0, 1, 0,
-                                            1, 1)
-                                : 1.0f;
-            float a2 = fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, 1, 0, -1,
-                                            0, 1, 1)
-                                : 1.0f;
+            float a0 =
+                fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, -1, 0, 1, 0, 1, 1)
+                         : 1.0f;
+            float a1 =
+                fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1)
+                         : 1.0f;
+            float a2 =
+                fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, 1, 0, -1, 0, 1, 1)
+                         : 1.0f;
             float a3 = fullCube ? computeAo(x, y, z, -1, 0, 0, 0, 0, -1, 0, -1,
                                             0, 1, 1)
                                 : 1.0f;
-            pushQuad(ax0, ay1, az0, ax0, ay1, az1, ax0, ay0, az1, ax0, ay0,
-                     az0, a0, a1, a2, a3, 0.68f, faces.west);
+            pushQuad(ax0, ay1, az0, ax0, ay1, az1, ax0, ay0, az1, ax0, ay0, az0,
+                     a0, a1, a2, a3, 0.74f, faces.west);
           }
+        };
+
+        auto canConnWallFence = [&](int32_t nx, int32_t ny, int32_t nz) {
+          if (isOpaqueFull(nx, ny, nz))
+            return true;
+          uint16_t np = getBlk(nx, ny, nz);
+          if (np == 0 || np >= palShape.size())
+            return false;
+          return palShape[np] == 4 || palShape[np] == 9 ||
+                 doc.palette[np].name.find("fence_gate") != std::string::npos;
+        };
+        auto canConnPane = [&](int32_t nx, int32_t ny, int32_t nz) {
+          if (isOpaqueFull(nx, ny, nz))
+            return true;
+          uint16_t np = getBlk(nx, ny, nz);
+          if (np == 0 || np >= palShape.size())
+            return false;
+          return palShape[np] == 5 || palShape[np] == 4 ||
+                 doc.palette[np].name.find("glass") != std::string::npos;
         };
 
         if (shape == 2) {
@@ -490,18 +532,52 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
           else
             emitBox(bx0, by0, bz0, bx1, by0 + 0.5f, bz1, false);
         } else if (shape == 4) {
-          emitBox(bx0 + 0.25f, by0, bz0 + 0.25f, bx1 - 0.25f, by1, bz1 - 0.25f,
-                  false);
+          bool cN = canConnWallFence(x, y, z - 1);
+          bool cS = canConnWallFence(x, y, z + 1);
+          bool cW = canConnWallFence(x - 1, y, z);
+          bool cE = canConnWallFence(x + 1, y, z);
+          bool straightNS = cN && cS && !cW && !cE && getBlk(x, y + 1, z) == 0;
+          bool straightEW = cW && cE && !cN && !cS && getBlk(x, y + 1, z) == 0;
+          if (!straightNS && !straightEW) {
+            emitBox(bx0 + 0.25f, by0, bz0 + 0.25f, bx1 - 0.25f, by1,
+                    bz1 - 0.25f, false);
+          }
+          if (cN)
+            emitBox(bx0 + 0.3125f, by0, bz0, bx1 - 0.3125f, by0 + 0.875f,
+                    bz0 + 0.5f, false);
+          if (cS)
+            emitBox(bx0 + 0.3125f, by0, bz0 + 0.5f, bx1 - 0.3125f, by0 + 0.875f,
+                    bz1, false);
+          if (cW)
+            emitBox(bx0, by0, bz0 + 0.3125f, bx0 + 0.5f, by0 + 0.875f,
+                    bz1 - 0.3125f, false);
+          if (cE)
+            emitBox(bx0 + 0.5f, by0, bz0 + 0.3125f, bx1, by0 + 0.875f,
+                    bz1 - 0.3125f, false);
         } else if (shape == 5) {
-          bool connX = (getBlk(x - 1, y, z) != 0) || (getBlk(x + 1, y, z) != 0);
-          bool connZ = (getBlk(x, y, z - 1) != 0) || (getBlk(x, y, z + 1) != 0);
-          if (connZ && !connX)
-            emitBox(bx0 + 0.43f, by0, bz0, bx1 - 0.43f, by1, bz1, false);
-          else
-            emitBox(bx0, by0, bz0 + 0.43f, bx1, by1, bz1 - 0.43f, false);
+          bool cN = canConnPane(x, y, z - 1);
+          bool cS = canConnPane(x, y, z + 1);
+          bool cW = canConnPane(x - 1, y, z);
+          bool cE = canConnPane(x + 1, y, z);
+          emitBox(bx0 + 0.4375f, by0, bz0 + 0.4375f, bx1 - 0.4375f, by1,
+                  bz1 - 0.4375f, false);
+          if (cN)
+            emitBox(bx0 + 0.4375f, by0, bz0, bx1 - 0.4375f, by1,
+                    bz0 + 0.4375f, false);
+          if (cS)
+            emitBox(bx0 + 0.4375f, by0, bz0 + 0.5625f, bx1 - 0.4375f, by1, bz1,
+                    false);
+          if (cW)
+            emitBox(bx0, by0, bz0 + 0.4375f, bx0 + 0.4375f, by1,
+                    bz1 - 0.4375f, false);
+          if (cE)
+            emitBox(bx0 + 0.5625f, by0, bz0 + 0.4375f, bx1, by1,
+                    bz1 - 0.4375f, false);
         } else if (shape == 6) {
-          emitBox(bx0 + 0.42f, by0, bz0 + 0.12f, bx1 - 0.42f, by1, bz1 - 0.12f,
+          emitBox(bx0 + 0.46f, by0, bz0 + 0.46f, bx1 - 0.46f, by1, bz1 - 0.46f,
                   false);
+          emitBox(bx0 + 0.12f, by0 + 0.15f, bz0 + 0.42f, bx1 - 0.12f,
+                  by0 + 0.94f, bz0 + 0.48f, false);
         } else if (shape == 7) {
           int dir = 0;
           bool upside = false;
@@ -524,27 +600,119 @@ void BuildMeshFromDoc(const Bedrockmetica::SchematicDocument &doc) {
             emitBox(bx0, stepY0, bz0 + 0.5f, bx1, stepY1, bz1, false);
           else
             emitBox(bx0, stepY0, bz0, bx1, stepY1, bz0 + 0.5f, false);
+        } else if (shape == 8) {
+          const auto &uv = faces.north.valid ? faces.north : faces.up;
+          pushQuad(bx0 + 0.25f, by1, bz0, bx0 + 0.25f, by1, bz1,
+                   bx0 + 0.25f, by0, bz1, bx0 + 0.25f, by0, bz0,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
+          pushQuad(bx1 - 0.25f, by1, bz0, bx1 - 0.25f, by1, bz1,
+                   bx1 - 0.25f, by0, bz1, bx1 - 0.25f, by0, bz0,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.92f, uv);
+          pushQuad(bx0, by1, bz0 + 0.25f, bx1, by1, bz0 + 0.25f,
+                   bx1, by0, bz0 + 0.25f, bx0, by0, bz0 + 0.25f,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
+          pushQuad(bx0, by1, bz1 - 0.25f, bx1, by1, bz1 - 0.25f,
+                   bx1, by0, bz1 - 0.25f, bx0, by0, bz1 - 0.25f,
+                   1.0f, 1.0f, 0.85f, 0.85f, 0.88f, uv);
+        } else if (shape == 9) {
+          bool cN = canConnWallFence(x, y, z - 1);
+          bool cS = canConnWallFence(x, y, z + 1);
+          bool cW = canConnWallFence(x - 1, y, z);
+          bool cE = canConnWallFence(x + 1, y, z);
+          emitBox(bx0 + 0.375f, by0, bz0 + 0.375f, bx1 - 0.375f, by1,
+                  bz1 - 0.375f, false);
+          if (cN) {
+            emitBox(bx0 + 0.4375f, by0 + 0.75f, bz0, bx1 - 0.4375f,
+                    by0 + 0.9375f, bz0 + 0.375f, false);
+            emitBox(bx0 + 0.4375f, by0 + 0.375f, bz0, bx1 - 0.4375f,
+                    by0 + 0.5625f, bz0 + 0.375f, false);
+          }
+          if (cS) {
+            emitBox(bx0 + 0.4375f, by0 + 0.75f, bz0 + 0.625f, bx1 - 0.4375f,
+                    by0 + 0.9375f, bz1, false);
+            emitBox(bx0 + 0.4375f, by0 + 0.375f, bz0 + 0.625f, bx1 - 0.4375f,
+                    by0 + 0.5625f, bz1, false);
+          }
+          if (cW) {
+            emitBox(bx0, by0 + 0.75f, bz0 + 0.4375f, bx0 + 0.375f,
+                    by0 + 0.9375f, bz1 - 0.4375f, false);
+            emitBox(bx0, by0 + 0.375f, bz0 + 0.4375f, bx0 + 0.375f,
+                    by0 + 0.5625f, bz1 - 0.4375f, false);
+          }
+          if (cE) {
+            emitBox(bx0 + 0.625f, by0 + 0.75f, bz0 + 0.4375f, bx1,
+                    by0 + 0.9375f, bz1 - 0.4375f, false);
+            emitBox(bx0 + 0.625f, by0 + 0.375f, bz0 + 0.4375f, bx1,
+                    by0 + 0.5625f, bz1 - 0.4375f, false);
+          }
+        } else if (shape == 10) {
+          bool hanging = false;
+          for (const auto &st : doc.palette[pid].states) {
+            if (st.key == "hanging" && st.intVal != 0)
+              hanging = true;
+          }
+          float ly0 = hanging ? by0 + 0.0625f : by0;
+          emitBox(bx0 + 0.3125f, ly0, bz0 + 0.3125f, bx1 - 0.3125f,
+                  ly0 + 0.4375f, bz1 - 0.3125f, false);
+          emitBox(bx0 + 0.375f, ly0 + 0.4375f, bz0 + 0.375f, bx1 - 0.375f,
+                  ly0 + 0.5625f, bz1 - 0.375f, false);
+          if (hanging)
+            emitBox(bx0 + 0.4375f, ly0 + 0.5625f, bz0 + 0.4375f, bx1 - 0.4375f,
+                    by1, bz1 - 0.4375f, false);
+        } else if (shape == 11) {
+          const auto &uv = faces.north.valid ? faces.north : faces.up;
+          bool placed = false;
+          if (isOpaqueFull(x, y, z - 1)) {
+            pushQuad(bx0, by1, bz0 + 0.04f, bx1, by1, bz0 + 0.04f, bx1, by0,
+                     bz0 + 0.04f, bx0, by0, bz0 + 0.04f, 1.0f, 1.0f, 0.9f, 0.9f,
+                     0.85f, uv);
+            placed = true;
+          }
+          if (isOpaqueFull(x, y, z + 1)) {
+            pushQuad(bx0, by1, bz1 - 0.04f, bx1, by1, bz1 - 0.04f, bx1, by0,
+                     bz1 - 0.04f, bx0, by0, bz1 - 0.04f, 1.0f, 1.0f, 0.9f, 0.9f,
+                     0.85f, uv);
+            placed = true;
+          }
+          if (isOpaqueFull(x - 1, y, z)) {
+            pushQuad(bx0 + 0.04f, by1, bz0, bx0 + 0.04f, by1, bz1, bx0 + 0.04f,
+                     by0, bz1, bx0 + 0.04f, by0, bz0, 1.0f, 1.0f, 0.9f, 0.9f,
+                     0.82f, uv);
+            placed = true;
+          }
+          if (isOpaqueFull(x + 1, y, z)) {
+            pushQuad(bx1 - 0.04f, by1, bz0, bx1 - 0.04f, by1, bz1, bx1 - 0.04f,
+                     by0, bz1, bx1 - 0.04f, by0, bz0, 1.0f, 1.0f, 0.9f, 0.9f,
+                     0.82f, uv);
+            placed = true;
+          }
+          if (!placed) {
+            pushQuad(bx0, by1, bz0 + 0.04f, bx1, by1, bz0 + 0.04f, bx1, by0,
+                     bz0 + 0.04f, bx0, by0, bz0 + 0.04f, 1.0f, 1.0f, 0.9f, 0.9f,
+                     0.85f, uv);
+          }
         } else {
           if (isTrans) {
             uint16_t nUp = getBlk(x, y + 1, z);
+            float topY = (isWater && nUp != pid) ? (by1 - 0.125f) : by1;
             if (nUp != pid)
-              pushQuad(bx0, by1, bz0, bx1, by1, bz0, bx1, by1, bz1, bx0, by1,
+              pushQuad(bx0, topY, bz0, bx1, topY, bz0, bx1, topY, bz1, bx0, topY,
                        bz1, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, faces.up);
             if (getBlk(x, y - 1, z) != pid)
               pushQuad(bx0, by0, bz1, bx1, by0, bz1, bx1, by0, bz0, bx0, by0,
                        bz0, 0.9f, 0.9f, 0.9f, 0.9f, 0.6f, faces.down);
             if (getBlk(x, y, z + 1) != pid)
-              pushQuad(bx0, by1, bz1, bx1, by1, bz1, bx1, by0, bz1, bx0, by0,
-                       bz1, 1.0f, 1.0f, 1.0f, 1.0f, 0.8f, faces.south);
+              pushQuad(bx0, topY, bz1, bx1, topY, bz1, bx1, by0, bz1, bx0, by0,
+                       bz1, 1.0f, 1.0f, 1.0f, 1.0f, 0.85f, faces.south);
             if (getBlk(x, y, z - 1) != pid)
-              pushQuad(bx1, by1, bz0, bx0, by1, bz0, bx0, by0, bz0, bx1, by0,
-                       bz0, 1.0f, 1.0f, 1.0f, 1.0f, 0.74f, faces.north);
+              pushQuad(bx1, topY, bz0, bx0, topY, bz0, bx0, by0, bz0, bx1, by0,
+                       bz0, 1.0f, 1.0f, 1.0f, 1.0f, 0.80f, faces.north);
             if (getBlk(x + 1, y, z) != pid)
-              pushQuad(bx1, by1, bz1, bx1, by1, bz0, bx1, by0, bz0, bx1, by0,
-                       bz1, 1.0f, 1.0f, 1.0f, 1.0f, 0.88f, faces.east);
+              pushQuad(bx1, topY, bz1, bx1, topY, bz0, bx1, by0, bz0, bx1, by0,
+                       bz1, 1.0f, 1.0f, 1.0f, 1.0f, 0.90f, faces.east);
             if (getBlk(x - 1, y, z) != pid)
-              pushQuad(bx0, by1, bz0, bx0, by1, bz1, bx0, by0, bz1, bx0, by0,
-                       bz0, 1.0f, 1.0f, 1.0f, 1.0f, 0.68f, faces.west);
+              pushQuad(bx0, topY, bz0, bx0, topY, bz1, bx0, by0, bz1, bx0, by0,
+                       bz0, 1.0f, 1.0f, 1.0f, 1.0f, 0.74f, faces.west);
           } else {
             emitBox(bx0, by0, bz0, bx1, by1, bz1, true);
           }
@@ -672,8 +840,8 @@ void EnsureDX11(ID3D11Device *device) {
   cdesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
   if (FAILED(device->CreateTexture2D(&cdesc, nullptr, &g_Dx11ColorTex)))
     return;
-  if (FAILED(device->CreateRenderTargetView(g_Dx11ColorTex, nullptr,
-                                            &g_Dx11Rtv)))
+  if (FAILED(
+          device->CreateRenderTargetView(g_Dx11ColorTex, nullptr, &g_Dx11Rtv)))
     return;
   if (FAILED(device->CreateShaderResourceView(g_Dx11ColorTex, nullptr,
                                               &g_Dx11Srv)))
@@ -684,8 +852,8 @@ void EnsureDX11(ID3D11Device *device) {
   ddesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
   if (FAILED(device->CreateTexture2D(&ddesc, nullptr, &g_Dx11DepthTex)))
     return;
-  if (FAILED(device->CreateDepthStencilView(g_Dx11DepthTex, nullptr,
-                                            &g_Dx11Dsv)))
+  if (FAILED(
+          device->CreateDepthStencilView(g_Dx11DepthTex, nullptr, &g_Dx11Dsv)))
     return;
 
   ID3DBlob *vsBlob = nullptr;
@@ -699,8 +867,8 @@ void EnsureDX11(ID3D11Device *device) {
     return;
   }
 
-  device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
-                             nullptr, &g_Dx11Vs);
+  device->CreateVertexShader(vsBlob->GetBufferPointer(),
+                             vsBlob->GetBufferSize(), nullptr, &g_Dx11Vs);
   device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(),
                             nullptr, &g_Dx11Ps);
 
@@ -901,8 +1069,7 @@ void EnsureDX12(ID3D12Device *device, UiAssets::SrvAllocFn allocFn) {
   psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
   psoDesc.SampleDesc.Count = 1;
 
-  device->CreateGraphicsPipelineState(&psoDesc,
-                                      IID_PPV_ARGS(&g_Dx12PsoOpaque));
+  device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_Dx12PsoOpaque));
 
   psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
   psoDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
@@ -910,8 +1077,7 @@ void EnsureDX12(ID3D12Device *device, UiAssets::SrvAllocFn allocFn) {
   psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
   psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
   psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-  psoDesc.BlendState.RenderTarget[0].DestBlendAlpha =
-      D3D12_BLEND_INV_SRC_ALPHA;
+  psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
   psoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
   device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_Dx12PsoTrans));
 
@@ -1023,8 +1189,7 @@ void RenderViewport(ImDrawList *draw, ImVec2 vpPos, ImVec2 vpSize, float yaw,
     return;
 
   float newAspect = std::max(0.25f, vpSize.x / std::max(1.0f, vpSize.y));
-  if (std::abs(yaw - g_Yaw) > 0.0002f ||
-      std::abs(pitch - g_Pitch) > 0.0002f ||
+  if (std::abs(yaw - g_Yaw) > 0.0002f || std::abs(pitch - g_Pitch) > 0.0002f ||
       std::abs(zoom - g_Zoom) > 0.0002f ||
       std::abs(newAspect - g_Aspect) > 0.002f) {
     g_Yaw = yaw;
@@ -1064,8 +1229,9 @@ void FlushRenderDX11(ID3D11DeviceContext *ctx) {
     ctx->Unmap(g_Dx11Cb, 0);
   }
 
-  D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(kRtWidth),
-                    static_cast<float>(kRtHeight), 0.0f, 1.0f};
+  D3D11_VIEWPORT vp{
+      0.0f, 0.0f, static_cast<float>(kRtWidth), static_cast<float>(kRtHeight),
+      0.0f, 1.0f};
   ctx->RSSetViewports(1, &vp);
   ctx->RSSetState(g_Dx11Rast);
   ctx->OMSetRenderTargets(1, &g_Dx11Rtv, g_Dx11Dsv);
@@ -1122,8 +1288,9 @@ void FlushRenderDX12(ID3D12GraphicsCommandList *cmd) {
                              nullptr);
 
   if (g_HasMesh) {
-    D3D12_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(kRtWidth),
-                      static_cast<float>(kRtHeight), 0.0f, 1.0f};
+    D3D12_VIEWPORT vp{
+        0.0f, 0.0f, static_cast<float>(kRtWidth), static_cast<float>(kRtHeight),
+        0.0f, 1.0f};
     D3D12_RECT sc{0, 0, kRtWidth, kRtHeight};
     cmd->RSSetViewports(1, &vp);
     cmd->RSSetScissorRects(1, &sc);

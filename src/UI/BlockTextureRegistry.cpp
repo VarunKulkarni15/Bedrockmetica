@@ -737,6 +737,27 @@ BlockFaceUVs AllocAtlasTile(const std::string &texPathRaw, uint32_t tintRgb,
   return uv;
 }
 
+static bool ShouldBiomeTint(const std::string &nameLow) {
+  if (nameLow == "grass_top" || nameLow == "tallgrass" || nameLow == "fern" ||
+      nameLow == "vine" || nameLow == "waterlily" ||
+      nameLow == "double_plant_grass_bottom" ||
+      nameLow == "double_plant_grass_top" ||
+      nameLow.find("water_still") != std::string::npos ||
+      nameLow.find("water_flow") != std::string::npos)
+    return true;
+  if (nameLow.find("leaves") != std::string::npos &&
+      nameLow.find("cherry") == std::string::npos)
+    return true;
+  return false;
+}
+
+static uint32_t DefaultBiomeTintRgb(const std::string &nameLow) {
+  if (nameLow.find("water_still") != std::string::npos ||
+      nameLow.find("water_flow") != std::string::npos)
+    return 0x3F76E4;
+  return 0x79C05A;
+}
+
 void BuildCpuAtlasOnce() {
   if (g_CpuBuilt)
     return;
@@ -777,12 +798,10 @@ void BuildCpuAtlasOnce() {
   for (const auto &kv : g_TerrainJsonMap) {
     if (g_NextSlot >= kTilesPerRow * kTilesPerRow)
       break;
-    bool tint = kv.second.hasTint || (kv.first == "grass_top") ||
-                (kv.first == "tallgrass") || (kv.first == "fern") ||
-                (kv.first == "waterlily") ||
-                (kv.first.find("leaves") != std::string::npos &&
-                 kv.first.find("cherry") == std::string::npos);
-    uint32_t rgb = kv.second.hasTint ? kv.second.tintRgb : 0x79C05A;
+    std::string kLow = ToLowerStr(kv.first);
+    bool tint = kv.second.hasTint || ShouldBiomeTint(kLow);
+    uint32_t rgb =
+        kv.second.hasTint ? kv.second.tintRgb : DefaultBiomeTintRgb(kLow);
     AllocAtlasTile(kv.second.path, rgb, tint);
   }
   for (const auto &ex : g_ExtraArraySpecs) {
@@ -804,13 +823,8 @@ void BuildCpuAtlasOnce() {
       if (dot != std::string::npos)
         fname = fname.substr(0, dot);
       std::string fLow = ToLowerStr(fname);
-      bool tint = (fLow == "grass_top") || (fLow == "tallgrass") ||
-                  (fLow == "double_plant_grass_bottom") ||
-                  (fLow == "double_plant_grass_top") ||
-                  (fLow == "fern") || (fLow == "waterlily") ||
-                  (fLow.find("leaves") != std::string::npos &&
-                   fLow.find("cherry") == std::string::npos);
-      AllocAtlasTile(fname, tint ? 0x79C05A : 0, tint);
+      bool tint = ShouldBiomeTint(fLow);
+      AllocAtlasTile(fname, tint ? DefaultBiomeTintRgb(fLow) : 0, tint);
     }
   }
 
@@ -825,12 +839,13 @@ BlockFaceUVs ResolveTerrainKey(const std::string &texKey) {
   std::string k = ToLowerStr(texKey);
   auto tit = g_TerrainJsonMap.find(k);
   if (tit != g_TerrainJsonMap.end()) {
-    bool tint = tit->second.hasTint || (k == "grass_top") ||
-                (k.find("leaves") != std::string::npos);
-    uint32_t rgb = tit->second.hasTint ? tit->second.tintRgb : 0x79C05A;
+    bool tint = tit->second.hasTint || ShouldBiomeTint(k);
+    uint32_t rgb =
+        tit->second.hasTint ? tit->second.tintRgb : DefaultBiomeTintRgb(k);
     return AllocAtlasTile(tit->second.path, rgb, tint);
   }
-  return AllocAtlasTile(k, 0, false);
+  bool tint = ShouldBiomeTint(k);
+  return AllocAtlasTile(k, tint ? DefaultBiomeTintRgb(k) : 0, tint);
 }
 
 std::string NormalizeBlockAlias(const std::string &id) {
@@ -922,10 +937,20 @@ std::string NormalizeBlockAlias(const std::string &id) {
     return "stone_diorite";
   if (s == "polished_diorite")
     return "stone_diorite_smooth";
+  if (s == "water" || s == "flowing_water")
+    return "water_still";
+  if (s == "wheat")
+    return "wheat_stage_7";
+  if (s == "carrots")
+    return "carrots_stage_3";
+  if (s == "potatoes")
+    return "potatoes_stage_3";
+  if (s == "beetroot")
+    return "beetroots_stage_3";
   if (s == "lily_pad" || s == "waterlily")
     return "waterlily";
   if (s == "standing_banner" || s == "wall_banner")
-    return "planks_oak";
+    return "wool_colored_red";
   if (s == "poppy")
     return "flower_rose";
   if (s == "dandelion")
