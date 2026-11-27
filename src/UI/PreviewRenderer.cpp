@@ -79,7 +79,8 @@ struct PSIn {
 float4 main(PSIn i) : SV_Target {
   float4 tex = (i.uv.x >= 0.0f) ? atlasTex.Sample(smp, i.uv) : float4(1.0f, 1.0f, 1.0f, 1.0f);
   clip(tex.a - 0.12f);
-  return float4(tex.rgb * i.col.rgb, tex.a * i.col.a);
+  float outA = (i.col.a >= 0.99f) ? 1.0f : (tex.a * i.col.a);
+  return float4(tex.rgb * i.col.rgb, outA);
 }
 )";
 
@@ -135,7 +136,7 @@ void ComputeMvpMatrix(float *outM16) {
   float nearZ = 0.25f;
   float farZ = std::max(400.0f, g_MaxDim * 12.0f);
 
-  float dist = std::max(5.5f, g_MaxDim * 1.48f) / std::clamp(g_Zoom, 0.35f, 3.0f);
+  float dist = std::max(6.0f, g_MaxDim * 1.78f) / std::clamp(g_Zoom, 0.35f, 3.0f);
   float cp = std::cos(g_Pitch);
   float sp = std::sin(g_Pitch);
   float cy = std::cos(g_Yaw);
@@ -193,7 +194,7 @@ void ComputeMvpMatrix(float *outM16) {
       for (int k = 0; k < 4; ++k) {
         sum += proj[row * 4 + k] * view[k * 4 + col];
       }
-      outM16[row * 4 + col] = sum;
+      outM16[col * 4 + row] = sum;
     }
   }
 }
